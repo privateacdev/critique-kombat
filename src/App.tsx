@@ -1676,7 +1676,6 @@ function App() {
 
   const checkSpecialMoves = (newState: FighterState, attackKeys: Set<string>) => {
     const buffer = inputBuffer.current.join(',');
-    const keys = keysPressed.current;
     const forward = newState.facingLeft ? 'LEFT' : 'RIGHT';
     const back = newState.facingLeft ? 'RIGHT' : 'LEFT';
 
@@ -2360,15 +2359,6 @@ function App() {
     setGameState('ROUND_START');
   };
 
-  const getComboTitle = (count: number, titles: string[]): string => {
-    if (count <= 1) return '';
-    if (count === 2) return titles[0];
-    if (count === 3) return titles[1];
-    if (count === 4) return titles[2];
-    if (count === 5) return titles[3];
-    return titles[4];
-  };
-  
   const getSpecialInstructions = (id: string) => {
     if (id === 'khayati') return 'SPECIALS: QCF+J (Pamphlet) | QCB+K (Scandal Grab)';
     if (id === 'bureaucrat') return 'SPECIALS: QCB+K (Compromise Grab) | QCF+J (Red Tape Shot)';

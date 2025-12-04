@@ -198,7 +198,7 @@ class AudioManager {
    * Update volumes for all loaded audio
    */
   private updateAllVolumes() {
-    this.instances.forEach((instance, key) => {
+    this.instances.forEach(instance => {
       instance.audio.volume = this.calculateVolume(instance.category, instance.volume);
     });
   }
