@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Critique Kombat</title>
+
+    <!-- MK-Style Arcade Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Teko:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        font-family: 'Orbitron', 'Teko', sans-serif;
+      }
+
+      /* MK-style text shadow for all text */
+      .mk-text {
+        font-family: 'Orbitron', monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        text-shadow:
+          2px 2px 0 #000,
+          -1px -1px 0 #000,
+          1px -1px 0 #000,
+          -1px 1px 0 #000,
+          3px 3px 8px rgba(0,0,0,0.8);
+      }
+
+      /* Special glow effect for important text */
+      .mk-glow {
+        text-shadow:
+          0 0 10px currentColor,
+          0 0 20px currentColor,
+          0 0 30px currentColor,
+          2px 2px 0 #000,
+          -1px -1px 0 #000;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

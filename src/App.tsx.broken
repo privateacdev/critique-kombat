@@ -1,0 +1,1890 @@
+import { useState, useEffect, useRef } from 'react';
+import NinjaRenderer from './NinjaRenderer';
+import StatBar from './StatBar';
+import DamageNumber from './DamageNumber';
+import { SCENARIOS, LOSE_SCENARIOS, ROUND_START_TEXT, type Scenario, type ScenarioActor } from './narrative';
+import { STAGES, CHARACTER_DATA, MAX_HP, MAX_METER, MOVE_SPEED, GRAVITY, JUMP_FORCE, STAGE_LEFT_BOUND, STAGE_RIGHT_BOUND } from './assets';
+import type { ActionType, MoveData } from './assets';
+
+// Randomly select a stage
+const STAGE_LIST = Object.values(STAGES);
+const RANDOM_STAGE = STAGE_LIST[Math.floor(Math.random() * STAGE_LIST.length)];
+const BLOOD_SPRITES = [
+  "/assets/props/effects/blood/2025/blood5_04.png",
+  "/assets/props/effects/blood/2025/blood5_05.png",
+  "/assets/props/effects/blood/2025/blood5_06.png",
+  "/assets/props/effects/blood/2025/blood5_07.png",
+  "/assets/props/effects/blood/2025/blood5_10.png",
+  "/assets/props/effects/blood/2025/blood5_11.png"
+];
+const SPARK_SPRITES = [
+  "/assets/props/effects/fire01.png",
+  "/assets/props/effects/fire02.png",
+  "/assets/props/effects/fire03.png"
+];
+const SMOKE_SPRITES = [
+  "/assets/props/effects/smoke01.gif",
+  "/assets/props/effects/smoke02.png",
+  "/assets/props/effects/smoke03.png"
+];
+const BLOCK_SPARK_SPRITES = [
+  "/assets/props/effects/explosion01.png",
+  "/assets/props/effects/explosion02.png",
+  "/assets/props/effects/explosion03.png"
+];
+const PROJECTILE_SPRITES: Record<string, string> = {
+  khayati: "/assets/props/text/old07.gif", // Old parchment/pamphlet sprite
+  bureaucrat: "/assets/props/effects/rocka05.gif", // Red tape chunk
+  professor: "/assets/props/effects/fire03.png", // Bell curve fireball
+  maoist: "/assets/props/effects/rockc04.gif", // Flying hat/rock
+  debord: "/assets/props/effects/fire08.png" // Spectacle shadow orb
+};
+const COMBO_TEXT_MAP: Record<number, string> = {
+  3: "NICE!",
+  5: "BRUTAL!",
+  7: "SAVAGE!",
+  10: "DEVASTATING!",
+  15: "LEGENDARY!"
+};
+const STORY_BACKGROUNDS = [
+  "/assets/backgrounds/versus.png",
+  "/assets/backgrounds/buyin.png",
+  "/assets/backgrounds/blueportal.png",
+  "/assets/backgrounds/orangeportal.png"
+];
+const HURTBOX_SIZES: Record<string, { width: number; height: number }> = {
+  khayati: { width: 150, height: 350 },
+  bureaucrat: { width: 160, height: 370 },
+  professor: { width: 150, height: 350 },
+  maoist: { width: 140, height: 330 },
+  debord: { width: 160, height: 370 }
+};
+const DEBUG_LOG = true;
+const dbg = (...args: unknown[]) => {
+  if (DEBUG_LOG) console.log('[CRITIQUE]', ...args);
+};
+const STAGE_MAP: Record<string, string> = {
+  bureaucrat: STAGES.scorpionsLair,
+  professor: STAGES.scislacBusorez,
+  maoist: STAGES.jadesDesert,
+  debord: STAGES.rooftop
+};
+const BANNER_TEXT: Record<string, string> = {
+  bureaucrat: 'Disciplinary Hearing',
+  professor: 'Tenure Review',
+  maoist: 'Sectarian Split',
+  debord: 'The Spectacle'
+};
+
+const styleDefault = { power: 1, speed: 1, defense: 1 };
+const getStyleModifiers = (fighter: FighterState) => {
+  const idx = fighter.styleIndex || 0;
+  switch (fighter.id) {
+    case 'khayati':
+      return idx === 1 ? { power: 1.1, speed: 1.05, defense: 0.95 } : styleDefault;
+    case 'bureaucrat':
+      return idx === 1 ? { power: 1.2, speed: 0.9, defense: 1.1 } : styleDefault;
+    case 'professor':
+      return idx === 1 ? { power: 0.9, speed: 1.1, defense: 1 } : styleDefault;
+    case 'maoist':
+      return idx === 1 ? { power: 1.1, speed: 1.05, defense: 0.9 } : styleDefault;
+    case 'debord':
+      return idx === 1 ? { power: 1.2, speed: 1.0, defense: 1.1 } : styleDefault;
+    default:
+      return styleDefault;
+  }
+};
+
+interface FighterState {
+  id: string;
+  x: number;
+  y: number;
+  velocityX: number;
+  velocityY: number;
+  hp: number;
+  meter: number;
+  action: ActionType;
+  actionFrame: number;
+  facingLeft: boolean;
+  roundsWon: number;
+  comboCount: number;
+  isBlocking: boolean;
+  stunFrames: number;
+  spectacleMode: boolean;
+  spectacleFrames: number;
+  styleIndex: number;
+}
+
+interface BloodEffectData {
+  id: string;
+  x: number;
+  y: number;
+  src: string;
+}
+
+interface SparkEffectData {
+  id: string;
+  x: number;
+  y: number;
+  src: string;
+}
+
+interface SmokeEffectData {
+  id: string;
+  x: number;
+  y: number;
+  src: string;
+}
+
+interface DamageNumberData {
+  id: string;
+  damage: number;
+  x: number;
+  y: number;
+  isBlocked: boolean;
+}
+
+interface ComboTextData {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+}
+
+interface Projectile {
+  id: string;
+  ownerId: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  sprite: string;
+  damage: number;
+  gravity?: number;
+  pierce?: boolean;
+}
+
+type GameState = 'TITLE' | 'CHAR_SELECT' | 'INTRO_CUTSCENE' | 'FIGHTING' | 'ROUND_START' | 'ROUND_END' | 'FINISH_HIM' | 'GAME_OVER' | 'BONUS_STAGE' | 'LOSE_CUTSCENE';
+
+function App() {
+  const [gameState, setGameState] = useState<GameState>('TITLE');
+  const [timer, setTimer] = useState(99);
+  const [message, setMessage] = useState('');
+  const [currentScenario, setCurrentScenario] = useState<Scenario>(() => {
+    const keys = Object.keys(SCENARIOS);
+    const randomKey = keys[Math.floor(Math.random() * keys.length)];
+    return SCENARIOS[randomKey] || SCENARIOS['khayati_vs_bureaucrat'];
+  });
+  const [cutsceneIndex, setCutsceneIndex] = useState(0);
+  const [bloodEffects, setBloodEffects] = useState<BloodEffectData[]>([]);
+  const [sparkEffects, setSparkEffects] = useState<SparkEffectData[]>([]);
+  const [smokeEffects, setSmokeEffects] = useState<SmokeEffectData[]>([]);
+  const [damageNumbers, setDamageNumbers] = useState<DamageNumberData[]>([]);
+  const [comboTexts, setComboTexts] = useState<ComboTextData[]>([]);
+  const [finishTimer, setFinishTimer] = useState(0); // Frames while in FINISH_HIM
+  const [fatalityTriggered, setFatalityTriggered] = useState(false);
+  const [ladderIndex, setLadderIndex] = useState(0);
+  const [lastWinner, setLastWinner] = useState<'player' | 'enemy' | null>(null);
+  const ladder: (keyof typeof CHARACTER_DATA)[] = ['bureaucrat', 'professor', 'maoist', 'debord'];
+  const [stageBg, setStageBg] = useState<string>(RANDOM_STAGE);
+  const [projectiles, setProjectiles] = useState<Projectile[]>([]);
+  const [unlockedDebord, setUnlockedDebord] = useState(false);
+  const [stageBanner, setStageBanner] = useState<string>('');
+  const [toasty, setToasty] = useState(false);
+  const [cabinetHp, setCabinetHp] = useState(0);
+  const [cabinetX] = useState(900);
+  const [pendingOpponent, setPendingOpponent] = useState<keyof typeof CHARACTER_DATA | null>(null);
+  const [hitstopFrames, setHitstopFrames] = useState(0); // Freeze game on hit
+  const [screenShake, setScreenShake] = useState({ x: 0, y: 0 }); // Screen shake offset
+
+  const [player, setPlayer] = useState<FighterState>({
+    id: 'khayati',
+    x: 600,
+    y: 0,
+    velocityX: 0,
+    velocityY: 0,
+    hp: MAX_HP,
+    meter: 0,
+    action: 'IDLE',
+    actionFrame: 0,
+    facingLeft: false,
+    roundsWon: 0,
+    comboCount: 0,
+    isBlocking: false,
+    stunFrames: 0,
+    spectacleMode: false,
+    spectacleFrames: 0,
+    styleIndex: 0
+  });
+
+  const [enemy, setEnemy] = useState<FighterState>({
+    id: 'bureaucrat',
+    x: 1200,
+    y: 0,
+    velocityX: 0,
+    velocityY: 0,
+    hp: MAX_HP,
+    meter: 0,
+    action: 'IDLE',
+    actionFrame: 0,
+    facingLeft: true,
+    roundsWon: 0,
+    comboCount: 0,
+    isBlocking: false,
+    stunFrames: 0,
+    spectacleMode: false,
+    spectacleFrames: 0,
+    styleIndex: 0
+  });
+
+  const aiThinkTimer = useRef(0);
+  const [selectedPlayerId, setSelectedPlayerId] = useState<keyof typeof CHARACTER_DATA>('khayati');
+
+  const keysPressed = useRef<Set<string>>(new Set());
+  const inputBuffer = useRef<string[]>([]);
+
+  // Get character data
+  const playerData = CHARACTER_DATA[player.id];
+  const enemyData = CHARACTER_DATA[enemy.id];
+
+  const selectScenario = (pId: string, eId: string): Scenario => {
+    const key = `${pId}_vs_${eId}`;
+    return SCENARIOS[key] || SCENARIOS['khayati_vs_bureaucrat'];
+  };
+
+  // Round start countdown
+  useEffect(() => {
+    if (gameState === 'ROUND_START') {
+      // Show full Situationist round intro: THESIS > ANTITHESIS > SYNTHESIZE!
+      setMessage(ROUND_START_TEXT[0]);
+      const t1 = setTimeout(() => setMessage(ROUND_START_TEXT[1] || 'ANTITHESIS...'), 800);
+      const t2 = setTimeout(() => setMessage(ROUND_START_TEXT[2] || 'SYNTHESIZE!'), 1600);
+      const t3 = setTimeout(() => {
+        setGameState('FIGHTING');
+        setMessage('');
+      }, 2400);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
+    }
+  }, [gameState]);
+
+  // Timer countdown
+  useEffect(() => {
+    if (gameState === 'FIGHTING') {
+      const interval = setInterval(() => {
+        setTimer(prev => {
+          if (prev <= 0) {
+            handleTimeOver();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [gameState]);
+
+  // Game loop - 60fps
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // Handle hitstop countdown
+      if (hitstopFrames > 0) {
+        setHitstopFrames(prev => prev - 1);
+        return; // Don't update game during hitstop
+      }
+
+      // Decay screen shake
+      if (screenShake.x !== 0 || screenShake.y !== 0) {
+        setScreenShake({
+          x: screenShake.x * 0.8,
+          y: screenShake.y * 0.8
+        });
+        if (Math.abs(screenShake.x) < 0.5 && Math.abs(screenShake.y) < 0.5) {
+          setScreenShake({ x: 0, y: 0 });
+        }
+      }
+
+      if (gameState === 'FIGHTING' || gameState === 'BONUS_STAGE' || gameState === 'FINISH_HIM') {
+        updateGame();
+      }
+      if (gameState === 'FINISH_HIM') {
+        setFinishTimer(prev => Math.max(0, prev - 1));
+      }
+    }, 16);
+
+    return () => clearInterval(interval);
+  }, [gameState, player, enemy, hitstopFrames, screenShake]);
+
+  // Keyboard controls
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (gameState === 'TITLE' && e.key === 'Enter') {
+        setGameState('CHAR_SELECT');
+        return;
+      }
+      if (gameState === 'CHAR_SELECT' && e.key === 'Enter') {
+        beginLadder(selectedPlayerId);
+        return;
+      }
+
+      if (gameState !== 'FIGHTING') return;
+      if (keysPressed.current.has(e.key)) return; // Prevent repeats
+      keysPressed.current.add(e.key);
+
+      // Add to input buffer for special moves
+      if (['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
+        const direction = e.key.replace('Arrow', '').toUpperCase();
+        inputBuffer.current.push(direction);
+        if (inputBuffer.current.length > 8) inputBuffer.current.shift();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      keysPressed.current.delete(e.key);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [gameState]);
+
+  const startRoundFromScenario = (scenarioOverride?: Scenario) => {
+    const scenario = scenarioOverride || currentScenario;
+    const playerActor = scenario.actors.find((a: ScenarioActor) => a.position === 'left') ?? scenario.actors[0];
+    const enemyActor = scenario.actors.find((a: ScenarioActor) => a.position === 'right') ?? scenario.actors[1];
+
+    const rawPlayerId = selectedPlayerId || playerActor?.characterId || player.id;
+    const rawEnemyId = enemyActor?.characterId ?? enemy.id;
+
+    const playerId = CHARACTER_DATA[rawPlayerId] ? rawPlayerId : 'khayati';
+    const enemyId = CHARACTER_DATA[rawEnemyId] ? rawEnemyId : 'bureaucrat';
+
+    const mappedStage = STAGE_MAP[enemyId];
+    const randomStage = STAGE_LIST[Math.floor(Math.random() * STAGE_LIST.length)];
+    setStageBg(mappedStage || randomStage);
+    setStageBanner(BANNER_TEXT[enemyId] || 'FIGHT!');
+
+    setPlayer(prev => ({
+      ...prev,
+      id: playerId,
+      x: 600,
+      y: 0,
+      velocityX: 0,
+      velocityY: 0,
+      hp: MAX_HP,
+      meter: 0,
+      action: 'IDLE',
+      actionFrame: 0,
+      facingLeft: false,
+      roundsWon: 0,
+      comboCount: 0,
+      isBlocking: false,
+      stunFrames: 0,
+      spectacleMode: false,
+      spectacleFrames: 0,
+      styleIndex: 0
+    }));
+
+    setEnemy(prev => ({
+      ...prev,
+      id: enemyId,
+      x: 1200,
+      y: 0,
+      velocityX: 0,
+      velocityY: 0,
+      hp: MAX_HP,
+      meter: 0,
+      action: 'IDLE',
+      actionFrame: 0,
+      facingLeft: true,
+      roundsWon: 0,
+      comboCount: 0,
+      isBlocking: false,
+      stunFrames: 0,
+      spectacleMode: false,
+      spectacleFrames: 0,
+      styleIndex: 0
+    }));
+
+    setMessage(ROUND_START_TEXT[0]);
+    setTimer(99);
+    setCutsceneIndex(0);
+    setGameState('ROUND_START');
+  };
+
+  const beginLadder = (playerId: keyof typeof CHARACTER_DATA) => {
+    const opponentId = ladder[0];
+    setSelectedPlayerId(playerId);
+    setLadderIndex(0);
+    const scenario = selectScenario(playerId, opponentId);
+    setCurrentScenario(scenario);
+    setGameState('INTRO_CUTSCENE');
+    setCutsceneIndex(0);
+  };
+
+  const advanceLadder = () => {
+    const nextIndex = ladderIndex + 1;
+    if (nextIndex >= ladder.length) {
+      setMessage('YOU ARE THE SITUATION');
+      setGameState('GAME_OVER');
+      setUnlockedDebord(true);
+      return;
+    }
+    // Trigger bonus stage after second fight
+    if (nextIndex === 2) {
+      setPendingOpponent(ladder[nextIndex]);
+      setCabinetHp(100);
+      setStageBg("/assets/mklk/cabinet_umk3.png");
+      setMessage('SMASH THE COMMODITY');
+      setGameState('BONUS_STAGE');
+      // Reset player position for bonus
+      setPlayer(prev => ({ ...prev, x: 600, y: 0, velocityX: 0, velocityY: 0 }));
+      return;
+    }
+    setLadderIndex(nextIndex);
+    const nextEnemy = ladder[nextIndex];
+    const scenario = selectScenario(player.id, nextEnemy);
+    setCurrentScenario(scenario);
+    setLastWinner(null);
+    setFatalityTriggered(false);
+    setGameState('INTRO_CUTSCENE');
+    setCutsceneIndex(0);
+  };
+
+  const advanceCutscene = () => {
+    if (!currentScenario) return;
+    if (cutsceneIndex < currentScenario.dialogue.length - 1) {
+      setCutsceneIndex(prev => prev + 1);
+    } else {
+      startRoundFromScenario();
+    }
+  };
+
+  const updateGame = () => {
+    if (gameState === 'BONUS_STAGE') {
+      setPlayer(prev => updateFighter(prev, true));
+      handleBonusStageHits();
+      return;
+    }
+    setPlayer(prev => updateFighter(prev, true));
+    setEnemy(prev => updateFighter(prev, false));
+    checkCollisions();
+    updateProjectiles();
+  };
+
+  const updateProjectiles = () => {
+    setProjectiles(prev => prev
+      .map(p => ({
+        ...p,
+        x: p.x + p.vx,
+        y: p.y + (p.vy || 0),
+        vy: p.vy !== undefined && p.gravity ? p.vy + p.gravity : p.vy
+      }))
+      .filter(p => p.x > STAGE_LEFT_BOUND && p.x < STAGE_RIGHT_BOUND && p.y > 0 && p.y < 800));
+
+    setProjectiles(prev => {
+      const remaining: Projectile[] = [];
+      prev.forEach(p => {
+        const targetState = p.ownerId === player.id ? enemy : player;
+        const distance = Math.abs(p.x - targetState.x);
+        const vertical = Math.abs((80 + targetState.y + 120) - p.y); // center mass
+        const facingOk = p.vx < 0 ? p.x >= targetState.x : p.x <= targetState.x;
+
+        if (distance < 90 && vertical < 140 && facingOk) {
+          // Apply projectile hit
+          const moveStub: MoveData = {
+            name: 'Projectile',
+            damage: p.damage,
+            meterGain: 5,
+            startup: 0,
+            active: 1,
+            recovery: 0,
+            hitStun: 12,
+            rangeX: 0,
+            rangeY: 0,
+            type: 'mid',
+            knockback: 10
+          };
+          if (p.ownerId === player.id) applyHit(player, enemy, moveStub, true);
+          else applyHit(enemy, player, moveStub, false);
+        } else {
+          remaining.push(p);
+        }
+      });
+      return remaining;
+    });
+  };
+
+  const handleBonusStageHits = () => {
+    // Cabinet hurtbox
+    const cabinetLeft = cabinetX - 100;
+    const cabinetRight = cabinetX + 100;
+    const cabinetTop = 480;
+    const cabinetBottom = 80;
+
+    const playerMove = getMoveData(player);
+    const isAttackingState = player.action.includes('ATTACK') || player.action.includes('SPECIAL');
+    const active = playerMove && (isInActiveFrames(player, playerMove) || isAttackingState);
+    if (playerMove && active) {
+      const hitLeft = player.x - playerMove.rangeX / 2;
+      const hitRight = player.x + playerMove.rangeX / 2;
+      const hitBottom = 80 + player.y;
+      const hitTop = hitBottom + playerMove.rangeY;
+
+      const overlaps =
+        hitRight >= cabinetLeft &&
+        hitLeft <= cabinetRight &&
+        hitTop >= cabinetBottom &&
+        hitBottom <= cabinetTop;
+
+      if (overlaps) {
+        dbg('Bonus hit', { hitLeft, hitRight, hitTop, hitBottom, cabinetHp, damage: playerMove.damage, action: player.action, frame: player.actionFrame });
+        spawnSparkEffect(cabinetX, 200, true);
+        setCabinetHp(hp => {
+          const newHp = Math.max(0, hp - playerMove.damage);
+          if (newHp <= 0) {
+            dbg('Cabinet destroyed');
+            setMessage('COMMODITY SMASHED');
+            setTimeout(() => {
+              const nextEnemy = pendingOpponent || 'maoist';
+              setLadderIndex(2);
+              const scenario = selectScenario(player.id, nextEnemy);
+              setCurrentScenario(scenario);
+              setGameState('INTRO_CUTSCENE');
+              setCutsceneIndex(0);
+              setPendingOpponent(null);
+            }, 800);
+          }
+          return newHp;
+        });
+      }
+    }
+  };
+
+  const updateFighter = (fighter: FighterState, isPlayer: boolean): FighterState => {
+    let newState = { ...fighter };
+
+    // Lock loser in dizzy during FINISH_HIM
+    if (!isPlayer && gameState === 'FINISH_HIM') {
+      newState.action = 'DIZZY';
+      newState.stunFrames = 999;
+      newState.velocityX = 0;
+      newState.velocityY = 0;
+    }
+
+    // Update action frame
+    newState.actionFrame++;
+
+    // Handle Spectacle Mode countdown
+    if (newState.spectacleMode) {
+      newState.spectacleFrames--;
+      if (newState.spectacleFrames <= 0) {
+        newState.spectacleMode = false;
+        newState.spectacleFrames = 0;
+      }
+    }
+
+    // Handle stun (but keep loser frozen during FINISH_HIM)
+    if (!(gameState === 'FINISH_HIM' && !isPlayer)) {
+      if (newState.stunFrames > 0) {
+        newState.stunFrames--;
+        if (newState.stunFrames === 0) {
+          newState.action = 'IDLE';
+          newState.actionFrame = 0;
+        }
+      }
+    }
+
+    // Apply physics
+    if (newState.y > 0 || newState.velocityY !== 0) {
+      newState.velocityY -= GRAVITY;
+      newState.y += newState.velocityY;
+
+      if (newState.y <= 0) {
+        newState.y = 0;
+        newState.velocityY = 0;
+
+        // Handle landing from knockdown - stay grounded
+        if (newState.action === 'KNOCKDOWN') {
+          // Character is now on the ground knocked down, they stay stunned
+          // The move completion logic will handle transitioning to IDLE
+        } else if (newState.action === 'JUMP' || newState.action.includes('JUMP_ATTACK')) {
+          newState.action = 'IDLE';
+          newState.actionFrame = 0;
+        }
+      } else if (!isAttacking(newState)) {
+        // Keep a clean airborne idle pose while rising/falling if not attacking
+        if (newState.action !== 'JUMP' && newState.action !== 'KNOCKDOWN') {
+          newState.action = 'JUMP';
+          newState.actionFrame = 0;
+        }
+      }
+    }
+
+    // Apply horizontal velocity (knockback)
+    if (newState.velocityX !== 0) {
+      newState.x += newState.velocityX;
+      newState.velocityX *= 0.8; // Friction
+      if (Math.abs(newState.velocityX) < 0.1) newState.velocityX = 0;
+    }
+
+    // Bounds checking - use stage bounds from assets
+    newState.x = Math.max(STAGE_LEFT_BOUND, Math.min(STAGE_RIGHT_BOUND, newState.x));
+
+    // Handle player input; allow control during FINISH_HIM even if previously stunned
+    const allowPlayerControl = gameState === 'FINISH_HIM'
+      ? true
+      : (gameState === 'FIGHTING' || gameState === 'BONUS_STAGE') && newState.stunFrames === 0;
+    if (isPlayer && allowPlayerControl) {
+      handlePlayerInput(newState);
+    }
+
+    // Handle AI
+    if (!isPlayer && gameState === 'FIGHTING' && newState.stunFrames === 0) {
+      handleAI(newState);
+    }
+
+    // Check move completion
+    const moveData = getMoveData(newState);
+    const preserveDizzy = gameState === 'FINISH_HIM' && !isPlayer && (newState.action === 'DIZZY' || newState.action === 'DEFEAT');
+    if (!preserveDizzy && moveData && newState.actionFrame >= moveData.startup + moveData.active + moveData.recovery) {
+      newState.action = 'IDLE';
+      newState.actionFrame = 0;
+    }
+
+    // Update facing direction
+    const opponent = isPlayer ? enemy : player;
+    if (newState.action === 'IDLE' || newState.action.includes('WALK')) {
+      newState.facingLeft = newState.x > opponent.x;
+    }
+
+    return newState;
+  };
+
+  const handleAI = (newState: FighterState) => {
+    aiThinkTimer.current++;
+
+    // AI thinks every 30 frames (half second)
+    if (aiThinkTimer.current < 30) return;
+    aiThinkTimer.current = 0;
+
+    const distance = Math.abs(newState.x - player.x);
+    const isFar = distance > 200;
+    const isClose = distance < 100;
+
+    // Random decision making
+    const rand = Math.random();
+
+    if (isAttacking(newState)) return; // Don't interrupt attacks
+
+    if (player.action.includes('ATTACK') && isClose && rand > 0.7) {
+      // Try to block incoming attacks
+      newState.action = 'BLOCK';
+      newState.isBlocking = true;
+    } else if (isFar && rand > 0.6) {
+      // Move closer
+      const speedMod = getStyleModifiers(newState).speed;
+      if (newState.x < player.x) {
+        newState.x += MOVE_SPEED * enemyData.stats.speed * speedMod * 0.8;
+      } else {
+        newState.x -= MOVE_SPEED * enemyData.stats.speed * speedMod * 0.8;
+      }
+      newState.action = 'WALK_FORWARD';
+    } else if (isClose && rand > 0.5) {
+      // Attack when close
+      if (rand > 0.8) {
+        performAttack(newState, 'ATTACK_RK'); // Heavy kick
+      } else if (rand > 0.6) {
+        performAttack(newState, 'ATTACK_RP'); // Right punch
+      } else {
+        performAttack(newState, 'ATTACK_LP'); // Jab
+      }
+    } else if (isClose && rand > 0.3 && newState.meter >= 20) {
+      // Try grab special
+      performAttack(newState, 'SPECIAL_2');
+    } else {
+      newState.isBlocking = false;
+    }
+  };
+
+  const handlePlayerInput = (newState: FighterState) => {
+    const keys = keysPressed.current;
+
+    // Style switch (Shift) - situationalist stance changes
+    if (keys.has('Shift')) {
+      const styles = playerData.styles || ['STYLE A', 'STYLE B'];
+      newState.styleIndex = (newState.styleIndex + 1) % styles.length;
+      setMessage(`STYLE: ${styles[newState.styleIndex]}`);
+      setTimeout(() => setMessage(''), 800);
+    }
+
+    // Finish Him fatality trigger - check FIRST before other inputs
+    if (gameState === 'FINISH_HIM' && !fatalityTriggered) {
+      // Check for fatality trigger FIRST
+      const distance = Math.abs(newState.x - enemy.x);
+      const inRange = distance < 250;
+      const attackReady = keys.has('j');
+
+      if (attackReady && inRange) {
+        // Fatality triggered! Process it and return early to skip normal attacks
+          dbg('Fatality triggered!', { distance, playerX: newState.x, enemyX: enemy.x });
+          setFatalityTriggered(true);
+          setLastWinner('player');
+
+          // Capture positions for fatality effects
+          const targetX = enemy.x;
+          const targetY = enemy.y;
+          const attackerX = newState.x;
+
+          // CHARACTER-SPECIFIC FATALITIES
+          const playerId = newState.id;
+          if (playerId === 'khayati') {
+            setMessage('THE PAMPHLET OF DOOM');
+            // Rapid projectile barrage
+            for (let i = 0; i < 15; i++) {
+              setTimeout(() => {
+                const proj: FighterState = {
+                  ...newState,
+                  x: attackerX,
+                  facingLeft: attackerX > targetX
+                };
+                spawnProjectile(proj, 20, 3);
+              }, i * 50);
+            }
+          } else if (playerId === 'bureaucrat') {
+            setMessage('RED TAPE ANNIHILATION');
+            // Multiple blood bursts
+            for (let i = 0; i < 12; i++) {
+              setTimeout(() => {
+                spawnBloodEffect(targetX + (Math.random() * 100 - 50), 80 + targetY + Math.random() * 60);
+                spawnSmokeEffect(targetX + (Math.random() * 80 - 40), 80 + targetY + Math.random() * 40);
+              }, i * 80);
+            }
+          } else if (playerId === 'professor') {
+            setMessage('GRADED TO DEATH');
+            // Cascading spark effects
+            for (let i = 0; i < 10; i++) {
+              setTimeout(() => {
+                spawnSparkEffect(targetX, 80 + targetY + i * 20, false);
+              }, i * 100);
+            }
+          } else if (playerId === 'maoist') {
+            setMessage('GREAT LEAP TO OBLIVION');
+            // Jump and stomp repeatedly
+            for (let i = 0; i < 5; i++) {
+              setTimeout(() => {
+                spawnSmokeEffect(targetX, 80 + targetY);
+                spawnBloodEffect(targetX, 80 + targetY + 60);
+              }, i * 200);
+            }
+          } else if (playerId === 'debord') {
+            setMessage('THE SPECTACLE CONSUMES');
+            // Massive blood explosion
+            for (let i = 0; i < 20; i++) {
+              setTimeout(() => {
+                const angle = (i / 20) * Math.PI * 2;
+                const radius = 60;
+                spawnBloodEffect(
+                  targetX + Math.cos(angle) * radius,
+                  80 + targetY + 100 + Math.sin(angle) * radius
+                );
+              }, i * 30);
+            }
+          } else {
+            setMessage('FATALITY');
+            for (let i = 0; i < 8; i++) {
+              spawnBloodEffect(targetX + (Math.random() * 80 - 40), 120 + targetY + Math.random() * 40);
+            }
+          }
+
+          setEnemy(prev => ({
+            ...prev,
+            hp: 0,
+            action: 'DEFEAT',
+            actionFrame: 0,
+            stunFrames: 0
+          }));
+          setTimeout(() => setGameState('GAME_OVER'), 1800);
+        }
+      }
+      // Don't return - allow attack inputs to work during FINISH_HIM for fatality trigger
+    }
+
+    // Spectacle Mode activation (Down + Space with full meter)
+    if (keys.has('ArrowDown') && keys.has(' ') && newState.meter >= 100 && !newState.spectacleMode) {
+      newState.spectacleMode = true;
+      newState.spectacleFrames = 300; // 5 seconds at 60fps
+      newState.meter = 0;
+      setMessage('THE SITUATION HAS BEEN CONSTRUCTED!');
+      setTimeout(() => setMessage(''), 1500);
+      return;
+    }
+
+    // Air control - allow slight horizontal movement while airborne
+    if (newState.y > 0 && !isAttacking(newState)) {
+      const speedMod = getStyleModifiers(newState).speed;
+      if (keys.has('ArrowLeft')) {
+        newState.velocityX = Math.max(newState.velocityX - 0.5, -MOVE_SPEED * playerData.stats.speed * speedMod * 1.2);
+      } else if (keys.has('ArrowRight')) {
+        newState.velocityX = Math.min(newState.velocityX + 0.5, MOVE_SPEED * playerData.stats.speed * speedMod * 1.2);
+      }
+    }
+
+    // Crouch
+    const isCrouching = keys.has('ArrowDown') && newState.y === 0 && !isAttacking(newState);
+
+    // Movement
+      if (keys.has('ArrowLeft') && newState.y === 0 && !isAttacking(newState) && !isCrouching) {
+      newState.x -= MOVE_SPEED * playerData.stats.speed * getStyleModifiers(newState).speed;
+      newState.action = 'WALK_BACKWARD';
+      newState.facingLeft = true;
+    } else if (keys.has('ArrowRight') && newState.y === 0 && !isAttacking(newState) && !isCrouching) {
+      newState.x += MOVE_SPEED * playerData.stats.speed * getStyleModifiers(newState).speed;
+      newState.action = 'WALK_FORWARD';
+      newState.facingLeft = false;
+    }
+
+    // Jump (with horizontal momentum)
+    if (keys.has('ArrowUp') && newState.y === 0 && !isAttacking(newState) && !isCrouching) {
+      newState.velocityY = JUMP_FORCE;
+      newState.action = 'JUMP';
+      newState.actionFrame = 0;
+
+      // Add horizontal momentum based on direction keys
+      if (keys.has('ArrowLeft')) {
+        newState.velocityX = -MOVE_SPEED * playerData.stats.speed * getStyleModifiers(newState).speed * 1.2; // Jump backward
+      } else if (keys.has('ArrowRight')) {
+        newState.velocityX = MOVE_SPEED * playerData.stats.speed * getStyleModifiers(newState).speed * 1.2; // Jump forward
+      }
+    }
+
+    // Block
+    if (keys.has('s') && newState.y === 0 && !isAttacking(newState) && !isCrouching) {
+      newState.action = 'BLOCK';
+      newState.isBlocking = true;
+    } else {
+      newState.isBlocking = false;
+    }
+
+    // Crouch attacks
+    if (isCrouching && !isAttacking(newState)) {
+      newState.action = 'CROUCH';
+      if (keys.has('j')) {
+        performAttack(newState, 'CROUCH_ATTACK_P');
+      } else if (keys.has('l')) {
+        performAttack(newState, 'CROUCH_ATTACK_K');
+      }
+    }
+
+    // Jump attacks
+    if (newState.y > 0 && !isAttacking(newState)) {
+      if (keys.has('j')) {
+        performAttack(newState, 'JUMP_ATTACK_P');
+      } else if (keys.has('l')) {
+        performAttack(newState, 'JUMP_ATTACK_K');
+      }
+    }
+
+    // Ground attacks - only if not already attacking
+    if (!isAttacking(newState) && newState.y === 0 && !isCrouching) {
+      if (keys.has('j')) { // Light Punch
+        performAttack(newState, 'ATTACK_LP');
+      } else if (keys.has('k')) { // Right Punch
+        performAttack(newState, 'ATTACK_RP');
+      } else if (keys.has('l')) { // Light Kick
+        performAttack(newState, 'ATTACK_LK');
+      } else if (keys.has('i')) { // Right Kick
+        performAttack(newState, 'ATTACK_RK');
+      }
+    }
+
+    // Special moves - check input buffer
+    checkSpecialMoves(newState);
+
+    // Parry (recovery during stun)
+    if (keys.has(' ') && newState.stunFrames > 0 && newState.meter >= 50) {
+      newState.meter -= 50;
+      newState.stunFrames = 0;
+      newState.action = 'IDLE';
+      newState.velocityX = newState.facingLeft ? 10 : -10; // Push back
+      setMessage('CO-OPTED!');
+      setTimeout(() => setMessage(''), 500);
+    }
+  };
+
+  const checkSpecialMoves = (newState: FighterState) => {
+    const buffer = inputBuffer.current.join(',');
+    const keys = keysPressed.current;
+    const forward = newState.facingLeft ? 'LEFT' : 'RIGHT';
+    const back = newState.facingLeft ? 'RIGHT' : 'LEFT';
+
+    // QCF (Down, Down-Forward, Forward) + Punch = SPECIAL_1
+    if (buffer.includes(`DOWN,${forward}`) && keys.has('j')) {
+      performAttack(newState, 'SPECIAL_1');
+      inputBuffer.current = [];
+    }
+    // QCB (Down, Down-Back, Back) + Kick = SPECIAL_2
+    else if (buffer.includes(`DOWN,${back}`) && keys.has('k')) {
+      performAttack(newState, 'SPECIAL_2');
+      inputBuffer.current = [];
+    }
+  };
+
+  const performAttack = (fighter: FighterState, action: ActionType) => {
+    const moveData = getMoveDataForAction(fighter.id, action);
+    if (moveData) {
+      fighter.action = action;
+      fighter.actionFrame = 0;
+      if (moveData.isProjectile) {
+        const powerMod = getStyleModifiers(fighter).power * (fighter.spectacleMode ? 1.2 : 1);
+        const speed = 14 + getStyleModifiers(fighter).speed * 4;
+        spawnProjectile(fighter, speed, moveData.damage * powerMod);
+      }
+    }
+  };
+
+  const isAttacking = (fighter: FighterState): boolean => {
+    return fighter.action.includes('ATTACK') || fighter.action.includes('SPECIAL');
+  };
+
+  const getMoveData = (fighter: FighterState): MoveData | null => {
+    return getMoveDataForAction(fighter.id, fighter.action);
+  };
+
+  const getMoveDataForAction = (fighterId: string, action: ActionType): MoveData | null => {
+    const data = CHARACTER_DATA[fighterId];
+    return data?.moves[action] || null;
+  };
+
+  const checkCollisions = () => {
+    const playerMove = getMoveData(player);
+    const enemyMove = getMoveData(enemy);
+
+    const allowFreeHits = gameState === 'FINISH_HIM';
+
+    // Check if player hits enemy
+    if (playerMove && isInActiveFrames(player, playerMove)) {
+      if (checkHitboxCollision(player, enemy, playerMove) && (allowFreeHits || enemy.stunFrames === 0)) {
+        applyHit(player, enemy, playerMove, true);
+      }
+    }
+
+    // Check if enemy hits player (not needed in finish him, but keep for completeness)
+    if (enemyMove && isInActiveFrames(enemy, enemyMove)) {
+      if (checkHitboxCollision(enemy, player, enemyMove) && (allowFreeHits || player.stunFrames === 0)) {
+        applyHit(enemy, player, enemyMove, false);
+      }
+    }
+  };
+
+  const checkHitboxCollision = (
+    attacker: FighterState,
+    defender: FighterState,
+    move: MoveData
+  ): boolean => {
+    // Facing check for strikes
+    const isFacingTarget = attacker.facingLeft ? attacker.x > defender.x : attacker.x < defender.x;
+    if (!isFacingTarget && !move.isGrab) return false;
+
+    // Hurtbox for defender
+    const baseBottom = 80 + defender.y;
+    const isCrouching = defender.action === 'CROUCH' || defender.action.includes('CROUCH_ATTACK');
+    const isAirborne = defender.y > 0;
+    const base = HURTBOX_SIZES[defender.id] || { width: 90, height: 200 };
+    const hurtWidth = isCrouching ? base.width * 0.8 : base.width;
+    const hurtHeight = isCrouching ? base.height * 0.6 : isAirborne ? base.height * 0.8 : base.height;
+    const hurtLeft = defender.x - hurtWidth / 2;
+    const hurtRight = defender.x + hurtWidth / 2;
+    const hurtTop = baseBottom + hurtHeight;
+    const hurtBottom = baseBottom;
+
+    // Hitbox for attacker based on move ranges
+    const hitWidth = move.rangeX + 40; // generous padding so close strikes register
+    const hitHeight = move.rangeY + 60;
+    const hitCenterX = attacker.x + (attacker.facingLeft ? -hitWidth / 2 : hitWidth / 2);
+    const hitBottom = 80 + attacker.y;
+    const hitLeft = hitCenterX - hitWidth / 2;
+    const hitRight = hitCenterX + hitWidth / 2;
+    const hitTop = hitBottom + hitHeight;
+
+    // Overlap check
+    const overlapsX = hitRight >= hurtLeft && hitLeft <= hurtRight;
+    const overlapsY = hitTop >= hurtBottom && hitBottom <= hurtTop;
+
+    if (!overlapsX || !overlapsY) return false;
+
+    // Lows must hit grounded
+    if (move.type === 'low' && isAirborne) return false;
+
+    return true;
+  };
+
+  const isInActiveFrames = (fighter: FighterState, move: MoveData): boolean => {
+    return fighter.actionFrame >= move.startup &&
+           fighter.actionFrame < move.startup + move.active;
+  };
+
+  const spawnBloodEffect = (x: number, y: number) => {
+    const src = BLOOD_SPRITES[Math.floor(Math.random() * BLOOD_SPRITES.length)];
+    const id = `blood-${Date.now()}-${Math.random()}`;
+    const effect: BloodEffectData = { id, x, y, src };
+    setBloodEffects(prev => [...prev, effect]);
+    setTimeout(() => {
+      setBloodEffects(prev => prev.filter(b => b.id !== id));
+    }, 500);
+  };
+
+  const spawnSparkEffect = (x: number, y: number, isBlock = false) => {
+    const id = `spark-${Date.now()}-${Math.random()}`;
+    const sourceList = isBlock ? BLOCK_SPARK_SPRITES : SPARK_SPRITES;
+    const src = sourceList[Math.floor(Math.random() * sourceList.length)];
+    const effect: SparkEffectData = { id, x, y, src };
+    setSparkEffects(prev => [...prev, effect]);
+    setTimeout(() => {
+      setSparkEffects(prev => prev.filter(s => s.id !== id));
+    }, 250);
+  };
+
+  const spawnSmokeEffect = (x: number, y: number) => {
+    const id = `smoke-${Date.now()}-${Math.random()}`;
+    const src = SMOKE_SPRITES[Math.floor(Math.random() * SMOKE_SPRITES.length)];
+    const effect: SmokeEffectData = { id, x, y, src };
+    setSmokeEffects(prev => [...prev, effect]);
+    setTimeout(() => {
+      setSmokeEffects(prev => prev.filter(s => s.id !== id));
+    }, 600);
+  };
+
+  const spawnProjectile = (owner: FighterState, speed: number, damage: number) => {
+    const sprite = PROJECTILE_SPRITES[owner.id] || "/assets/props/effects/fire02.png";
+    const dir = owner.facingLeft ? -1 : 1;
+    const id = `proj-${Date.now()}-${Math.random()}`;
+    // Spawn near hands; height varies per character and airborne state
+    const handHeight: Record<string, number> = {
+      khayati: owner.y > 0 ? 260 : 220,
+      bureaucrat: owner.y > 0 ? 250 : 210,
+      professor: owner.y > 0 ? 255 : 215,
+      maoist: owner.y > 0 ? 250 : 210,
+      debord: owner.y > 0 ? 265 : 225
+    };
+    const height = handHeight[owner.id] ?? (owner.y > 0 ? 250 : 210);
+    const arc = owner.id === 'maoist';
+    const proj: Projectile = {
+      id,
+      ownerId: owner.id,
+      x: owner.x + dir * 130,
+      y: 80 + owner.y + height,
+      vx: speed * dir,
+      vy: arc ? 4 : 0,
+      gravity: arc ? 0.4 : 0,
+      sprite,
+      damage
+    };
+    setProjectiles(prev => [...prev, proj]);
+  };
+
+  const spawnDamageNumber = (damage: number, x: number, y: number, isBlocked: boolean) => {
+    const id = `dmg-${Date.now()}-${Math.random()}`;
+    const dmgNum: DamageNumberData = { id, damage, x, y, isBlocked };
+    setDamageNumbers(prev => [...prev, dmgNum]);
+  };
+
+  const removeDamageNumber = (id: string) => {
+    setDamageNumbers(prev => prev.filter(d => d.id !== id));
+  };
+
+  const spawnComboText = (comboCount: number, x: number, y: number) => {
+    // Only spawn text at combo milestones
+    if (!COMBO_TEXT_MAP[comboCount]) return;
+
+    const id = `combo-${Date.now()}-${Math.random()}`;
+    const text = COMBO_TEXT_MAP[comboCount];
+    const comboText: ComboTextData = { id, text, x, y };
+    setComboTexts(prev => [...prev, comboText]);
+
+    // Auto-remove after animation (1.5 seconds)
+    setTimeout(() => {
+      setComboTexts(prev => prev.filter(c => c.id !== id));
+    }, 1500);
+  };
+
+  const applyHit = (
+    attacker: FighterState,
+    defender: FighterState,
+    move: MoveData,
+    attackerIsPlayer: boolean
+  ) => {
+    // Check if defender is blocking
+    const isBlocked = defender.isBlocking && defender.action === 'BLOCK';
+
+    // Calculate damage with blocking reduction
+    const atkMods = getStyleModifiers(attacker);
+    const defMods = getStyleModifiers(defender);
+
+    let damage = move.damage * CHARACTER_DATA[attacker.id].stats.power * atkMods.power;
+    damage /= defMods.defense;
+    if (isBlocked) {
+      damage *= 0.25; // Blocking reduces damage to 25%
+
+      // Spawn block effect at character's center/torso (using same coordinate system as character rendering)
+      spawnSparkEffect(defender.x, 80 + defender.y + 110, true);
+
+      // Give defender meter for blocking
+      if (attackerIsPlayer) {
+        setEnemy(prev => ({
+          ...prev,
+          meter: Math.min(MAX_METER, prev.meter + 10)
+        }));
+      } else {
+        setPlayer(prev => ({
+          ...prev,
+          meter: Math.min(MAX_METER, prev.meter + 10)
+        }));
+      }
+    } else {
+      // Spawn blood splatter on clean hits
+      spawnBloodEffect(defender.x, 80 + defender.y + 100);
+      if (damage >= 20) {
+        setToasty(true);
+        setTimeout(() => setToasty(false), 700);
+      }
+    }
+
+    // HITSTOP: Freeze game on hit for impact
+    const hitstopDuration = isBlocked ? 2 : Math.min(8, Math.floor(damage / 5));
+    setHitstopFrames(hitstopDuration);
+
+    // SCREEN SHAKE: Shake on heavy hits
+    if (!isBlocked && damage >= 12) {
+      const shakeIntensity = Math.min(15, damage / 2);
+      setScreenShake({
+        x: (Math.random() - 0.5) * shakeIntensity,
+        y: (Math.random() - 0.5) * shakeIntensity
+      });
+    }
+
+    // Spawn damage number (position it near the defender's head, using bottom coordinate system)
+    const damageY = 80 + defender.y + 180; // Above character's head
+    spawnDamageNumber(damage, defender.x, damageY, isBlocked);
+
+    if (attackerIsPlayer) {
+      setEnemy(prev => {
+        const newHp = Math.max(0, prev.hp - damage);
+        const newMeter = Math.min(MAX_METER, prev.meter + 5); // Gain meter when hit
+
+        // Reduce stun/knockback when blocking
+        const stunMultiplier = isBlocked ? 0.3 : 1.0;
+        const knockbackMultiplier = isBlocked ? 0.2 : 1.0;
+
+        const knockdown = !isBlocked && (move.knockback > 15 || move.hitStun > 20);
+        const launch = !isBlocked && attacker.action === 'ATTACK_RP' && defender.y <= 0;
+        const isGrabbed = !isBlocked && move.isGrab;
+
+        if (knockdown) {
+          spawnSmokeEffect(defender.x, 80 + defender.y);
+        }
+
+        // Determine action based on hit type
+        let newAction: ActionType = prev.action;
+        if (!isBlocked) {
+          if (isGrabbed) newAction = 'GRABBED';
+          else if (knockdown) newAction = 'KNOCKDOWN';
+          else newAction = 'HIT_STUN';
+        }
+
+        return {
+          ...prev,
+          hp: newHp,
+          meter: newMeter,
+          action: newAction,
+          actionFrame: 0,
+          stunFrames: Math.floor(move.hitStun * stunMultiplier),
+          velocityX: move.knockback * knockbackMultiplier * (attacker.facingLeft ? -1 : 1),
+          velocityY: launch ? 15 : knockdown ? 10 : prev.velocityY,
+          comboCount: 0 // Reset enemy combo
+        };
+      });
+
+      setPlayer(prev => {
+        const newMeter = Math.min(MAX_METER, prev.meter + move.meterGain);
+        const newCombo = isBlocked ? prev.comboCount : prev.comboCount + 1;
+
+        // Spawn combo text at milestone combos
+        if (!isBlocked && newCombo >= 3) {
+          spawnComboText(newCombo, attacker.x, 80 + attacker.y + 220);
+        }
+
+        return {
+          ...prev,
+          meter: newMeter,
+          comboCount: newCombo
+        };
+      });
+
+      // Check for KO
+      if (defender.hp - damage <= 0) {
+        handleRoundEnd(true);
+      }
+    } else {
+      setPlayer(prev => {
+        const newHp = Math.max(0, prev.hp - damage);
+        const newMeter = Math.min(MAX_METER, prev.meter + 5);
+
+        const stunMultiplier = isBlocked ? 0.3 : 1.0;
+        const knockbackMultiplier = isBlocked ? 0.2 : 1.0;
+
+        const knockdown = !isBlocked && (move.knockback > 15 || move.hitStun > 20);
+        const launch = !isBlocked && attacker.action === 'ATTACK_RP' && defender.y <= 0;
+        const isGrabbed = !isBlocked && move.isGrab;
+
+        if (knockdown) {
+          spawnSmokeEffect(defender.x, 80 + defender.y);
+        }
+
+        // Determine action based on hit type
+        let newAction: ActionType = prev.action;
+        if (!isBlocked) {
+          if (isGrabbed) newAction = 'GRABBED';
+          else if (knockdown) newAction = 'KNOCKDOWN';
+          else newAction = 'HIT_STUN';
+        }
+
+        return {
+          ...prev,
+          hp: newHp,
+          meter: newMeter,
+          action: newAction,
+          actionFrame: 0,
+          stunFrames: Math.floor(move.hitStun * stunMultiplier),
+          velocityX: move.knockback * knockbackMultiplier * (attacker.facingLeft ? -1 : 1),
+          velocityY: launch ? 15 : knockdown ? 10 : prev.velocityY,
+          comboCount: 0
+        };
+      });
+
+      setEnemy(prev => {
+        const newMeter = Math.min(MAX_METER, prev.meter + move.meterGain);
+        const newCombo = isBlocked ? prev.comboCount : prev.comboCount + 1;
+
+        // Spawn combo text at milestone combos
+        if (!isBlocked && newCombo >= 3) {
+          spawnComboText(newCombo, attacker.x, 80 + attacker.y + 220);
+        }
+
+        return {
+          ...prev,
+          meter: newMeter,
+          comboCount: newCombo
+        };
+      });
+
+      if (defender.hp - damage <= 0) {
+        handleRoundEnd(false);
+      }
+    }
+  };
+
+  const handleRoundEnd = (playerWon: boolean) => {
+    setGameState('ROUND_END');
+
+    if (playerWon) {
+      setLastWinner('player');
+      setPlayer(prev => ({
+        ...prev,
+        roundsWon: prev.roundsWon + 1,
+        action: 'IDLE',
+        actionFrame: 0
+      }));
+      setEnemy(prev => ({
+        ...prev,
+        action: 'DEFEAT',
+        actionFrame: 0
+      }));
+
+      if (player.roundsWon + 1 >= 2) {
+        setMessage('CRITIQUE HIM!');
+        setFinishTimer(300); // 5 seconds at 60fps
+        setFatalityTriggered(false);
+        setGameState('FINISH_HIM');
+        setEnemy(prev => ({
+          ...prev,
+          action: 'DIZZY',
+          actionFrame: 0,
+          stunFrames: 999 // keep them frozen
+        }));
+        setPlayer(prev => ({ ...prev, stunFrames: 0 }));
+      } else {
+        setMessage(`${playerData.name.toUpperCase()} WINS ROUND`);
+        setTimeout(() => resetRound(), 2000);
+      }
+    } else {
+      setLastWinner('enemy');
+      setEnemy(prev => ({
+        ...prev,
+        roundsWon: prev.roundsWon + 1,
+        action: 'VICTORY',
+        actionFrame: 0
+      }));
+      setPlayer(prev => ({
+        ...prev,
+        action: 'DEFEAT',
+        actionFrame: 0
+      }));
+
+      if (enemy.roundsWon + 1 >= 2) {
+        const loseScenario = LOSE_SCENARIOS[player.id] || LOSE_SCENARIOS['khayati'];
+        setCurrentScenario(loseScenario);
+        setCutsceneIndex(0);
+        setMessage('GAME OVER');
+        setGameState('LOSE_CUTSCENE');
+      } else {
+        setMessage(`${enemyData.name.toUpperCase()} WINS ROUND`);
+        setTimeout(() => resetRound(), 2000);
+      }
+    }
+  };
+
+  const handleTimeOver = () => {
+    setGameState('ROUND_END');
+
+    if (player.hp > enemy.hp) {
+      handleRoundEnd(true);
+    } else if (enemy.hp > player.hp) {
+      handleRoundEnd(false);
+    } else {
+      setMessage('MUTUAL DESTRUCTION');
+      setTimeout(() => resetRound(), 2000);
+    }
+  };
+  
+  // Auto-end FINISH_HIM if timer expires without fatality
+  useEffect(() => {
+    if (gameState === 'FINISH_HIM' && finishTimer === 0 && !fatalityTriggered) {
+      setEnemy(prev => ({ ...prev, action: 'DEFEAT', actionFrame: 0, hp: 0 }));
+      setLastWinner('player');
+      setMessage('TIME OVER');
+      setTimeout(() => setGameState('GAME_OVER'), 800);
+    }
+  }, [finishTimer, gameState, fatalityTriggered]);
+
+  // Advance ladder on win at game over
+  useEffect(() => {
+    if (gameState === 'GAME_OVER' && lastWinner === 'player') {
+      setTimeout(() => {
+        advanceLadder();
+      }, 1200);
+    }
+    if (gameState === 'LOSE_CUTSCENE') {
+      // if player lost, exit back to title after cutscene advance
+      const handler = setTimeout(() => {
+        setGameState('TITLE');
+        setLastWinner(null);
+        setLadderIndex(0);
+      }, 200);
+      return () => clearTimeout(handler);
+    }
+  }, [gameState, lastWinner]);
+
+  const resetRound = () => {
+    setPlayer(prev => ({
+      ...prev,
+      x: 600,
+      y: 0,
+      velocityX: 0,
+      velocityY: 0,
+      hp: MAX_HP,
+      meter: prev.meter, // Keep meter between rounds
+      action: 'IDLE',
+      actionFrame: 0,
+      stunFrames: 0,
+      comboCount: 0,
+      spectacleMode: false,
+      spectacleFrames: 0,
+      styleIndex: 0
+    }));
+
+    setEnemy(prev => ({
+      ...prev,
+      x: 1200,
+      y: 0,
+      velocityX: 0,
+      velocityY: 0,
+      hp: MAX_HP,
+      meter: prev.meter,
+      action: 'IDLE',
+      actionFrame: 0,
+      stunFrames: 0,
+      comboCount: 0,
+      spectacleMode: false,
+      spectacleFrames: 0,
+      styleIndex: 0
+    }));
+
+    setBloodEffects([]);
+    setSparkEffects([]);
+    setSmokeEffects([]);
+    setProjectiles([]);
+    setDamageNumbers([]);
+    setComboTexts([]);
+    setTimer(99);
+    const roundIndex = Math.max(player.roundsWon, enemy.roundsWon) % ROUND_START_TEXT.length;
+    setMessage(ROUND_START_TEXT[roundIndex] ?? `ROUND ${Math.max(player.roundsWon, enemy.roundsWon) + 1}`);
+    setGameState('ROUND_START');
+  };
+
+  const getComboTitle = (count: number, titles: string[]): string => {
+    if (count <= 1) return '';
+    if (count === 2) return titles[0];
+    if (count === 3) return titles[1];
+    if (count === 4) return titles[2];
+    if (count === 5) return titles[3];
+    return titles[4];
+  };
+  
+  const getSpecialInstructions = (id: string) => {
+    if (id === 'khayati') return 'SPECIALS: QCF+J (Pamphlet) | QCB+K (Scandal Grab)';
+    if (id === 'bureaucrat') return 'SPECIALS: QCB+K (Compromise Grab) | QCF+J (Red Tape Shot)';
+    if (id === 'professor') return 'SPECIALS: QCF+J (Bell Curve) | QCB+K (Sabbatical Buff)';
+    if (id === 'maoist') return 'SPECIALS: DU+J (Great Leap) | DD+K (Self Crit)';
+    if (id === 'debord') return 'SPECIALS: QCF+J (Spectacle Orb) | QCB+K (Invisible Hand)';
+    return '';
+  };
+
+  if ((gameState === 'INTRO_CUTSCENE' || gameState === 'LOSE_CUTSCENE') && currentScenario) {
+    const currentLine = currentScenario.dialogue[cutsceneIndex] ?? currentScenario.dialogue[currentScenario.dialogue.length - 1];
+    const playerActor = currentScenario.actors.find((a: ScenarioActor) => a.position === 'left') ?? currentScenario.actors[0];
+    const enemyActor = currentScenario.actors.find((a: ScenarioActor) => a.position === 'right') ?? currentScenario.actors[1];
+    const storyBg = STORY_BACKGROUNDS[ladderIndex % STORY_BACKGROUNDS.length];
+
+    return (
+      <div
+        className="w-full h-screen relative overflow-hidden text-white cursor-pointer"
+        onClick={advanceCutscene}
+      >
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `url(${storyBg})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center'
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-black/80" />
+        <div className="absolute top-6 w-full flex flex-col items-center gap-2">
+          <img src="/assets/logo.png" alt="logo" className="w-32 h-auto drop-shadow-[0_0_16px_rgba(0,0,0,0.8)]" />
+          <div className="text-4xl font-black tracking-[0.3em]" style={{ fontFamily: 'Orbitron, monospace', textShadow: '0 0 12px #000' }}>
+            {currentScenario.title}
+          </div>
+        </div>
+        {/* VS Card */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="flex items-center gap-6 bg-black/60 border-2 border-yellow-500 px-6 py-4 shadow-2xl">
+            <div className="flex flex-col items-center gap-2">
+              {playerActor && CHARACTER_DATA[playerActor.characterId]?.portrait && (
+                <img src={CHARACTER_DATA[playerActor.characterId].portrait} alt={playerActor.characterId} className="w-24 h-24 border-2 border-yellow-500 object-cover" />
+              )}
+              <div className="text-sm tracking-[0.2em]" style={{ fontFamily: 'Teko, sans-serif' }}>{playerActor?.characterId}</div>
+            </div>
+            <div className="text-5xl font-black text-yellow-300 drop-shadow-[0_0_10px_#000]" style={{ fontFamily: 'Orbitron, monospace', letterSpacing: '0.3em' }}>
+              VS
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              {enemyActor && CHARACTER_DATA[enemyActor.characterId]?.portrait && (
+                <img src={CHARACTER_DATA[enemyActor.characterId].portrait} alt={enemyActor.characterId} className="w-24 h-24 border-2 border-yellow-500 object-cover" />
+              )}
+              <div className="text-sm tracking-[0.2em]" style={{ fontFamily: 'Teko, sans-serif' }}>{enemyActor?.characterId}</div>
+            </div>
+          </div>
+        </div>
+        {/* Dialogue bar */}
+        <div className="absolute bottom-0 w-full flex items-end justify-center p-6">
+          <div className="w-full max-w-5xl bg-black/70 border border-yellow-500/60 shadow-2xl p-4 flex gap-4 items-center">
+            {playerActor && CHARACTER_DATA[playerActor.characterId]?.portrait && (
+              <img src={CHARACTER_DATA[playerActor.characterId].portrait} alt={playerActor.characterId} className="w-16 h-16 border-2 border-yellow-500 object-cover" />
+            )}
+            <div className="flex-1">
+              {currentLine && (
+                <>
+                  <div className="text-xs uppercase tracking-[0.3em] text-yellow-300 mb-1">{currentLine.speaker}</div>
+                  <div className="text-lg leading-relaxed">{currentLine.text}</div>
+                  <div className="text-xs text-gray-400 mt-1">{cutsceneIndex + 1} / {currentScenario.dialogue.length}</div>
+                </>
+              )}
+            </div>
+            {enemyActor && CHARACTER_DATA[enemyActor.characterId]?.portrait && (
+              <img src={CHARACTER_DATA[enemyActor.characterId].portrait} alt={enemyActor.characterId} className="w-16 h-16 border-2 border-yellow-500 object-cover" />
+            )}
+          </div>
+        </div>
+        <div className="absolute bottom-4 w-full text-center text-yellow-300 text-sm font-semibold tracking-[0.2em] drop-shadow-[0_0_6px_#000]">
+          CLICK TO ADVANCE
+        </div>
+      </div>
+    );
+  }
+
+  if (gameState === 'TITLE') {
+    return (
+      <div
+        className="w-full h-screen bg-black text-white flex flex-col items-center justify-center gap-6"
+        style={{
+          backgroundImage: "url('/assets/title.png')",
+          backgroundSize: 'cover',
+          backgroundPosition: 'center'
+        }}
+      >
+        <div className="text-6xl font-black tracking-widest drop-shadow-[0_0_20px_rgba(0,0,0,0.8)]" style={{ fontFamily: 'Orbitron, monospace' }}>
+          CRITIQUE KOMBAT
+        </div>
+        <div className="text-xl uppercase tracking-[0.3em] text-yellow-300">Press Enter to Start</div>
+        <div className="text-sm text-gray-400">A Situationist ladder through bureaucracy, academia, and spectacle</div>
+      </div>
+    );
+  }
+
+  if (gameState === 'CHAR_SELECT') {
+    const roster = (Object.keys(CHARACTER_DATA) as (keyof typeof CHARACTER_DATA)[]).filter(id => id !== 'debord' || unlockedDebord);
+    return (
+      <div className="w-full h-screen bg-gradient-to-b from-black via-slate-900 to-black text-white flex flex-col p-6 gap-4">
+        <div className="text-4xl font-black tracking-widest mb-4" style={{ fontFamily: 'Orbitron, monospace' }}>
+          SELECT YOUR SITUATIONIST
+        </div>
+        <div className="grid grid-cols-3 gap-4 max-w-5xl">
+          {roster.map(id => {
+            const data = CHARACTER_DATA[id];
+            const isSelected = selectedPlayerId === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setSelectedPlayerId(id)}
+                className={`border ${isSelected ? 'border-yellow-400' : 'border-gray-700'} bg-black/60 p-3 flex items-center gap-3 hover:border-yellow-400 transition`}
+              >
+                {data.portrait && (
+                  <img src={data.portrait} alt={data.name} className="w-14 h-14 object-cover border border-gray-600" />
+                )}
+                <div className="flex flex-col items-start">
+                  <div className="text-lg font-bold uppercase">{data.name}</div>
+                  <div className="text-xs text-gray-400">{data.archetype}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <button
+          onClick={() => beginLadder(selectedPlayerId)}
+          className="mt-auto self-start px-6 py-3 bg-yellow-500 text-black font-black tracking-widest hover:bg-yellow-400"
+          style={{ fontFamily: 'Orbitron, monospace' }}
+        >
+          ENTER THE LADDER
+        </button>
+      </div>
+    );
+  }
+
+  // Calculate camera position - center between the two fighters
+  const cameraX = (player.x + enemy.x) / 2;
+  const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+  const cameraOffset = Math.max(0, Math.min(cameraX - screenWidth / 2, STAGE_RIGHT_BOUND - screenWidth));
+
+  return (
+    <div className="w-full h-screen overflow-hidden bg-black relative">
+      {/* HUD - Fixed on screen, doesn't scroll */}
+      <div className="absolute top-0 left-0 right-0 z-50 flex justify-between items-start p-4">
+        <StatBar
+          health={player.hp}
+          meter={player.meter}
+          meterName={playerData.meterName}
+          roundsWon={player.roundsWon}
+          side="left"
+          characterName={playerData.name}
+          portrait={playerData.portrait}
+          styleLabel={(playerData.styles && playerData.styles[player.styleIndex]) || undefined}
+          comboCount={player.comboCount}
+          comboTitle={getComboTitle(player.comboCount, playerData.comboTitles)}
+        />
+
+        <div className="flex flex-col items-center gap-2">
+          <div className="mk-text text-white text-6xl font-black" style={{ fontFamily: 'Orbitron, monospace', textShadow: '0 0 20px rgba(255,255,255,0.5), 3px 3px 0 #000' }}>
+            {timer}
+          </div>
+          {gameState === 'BONUS_STAGE' && (
+            <div className="text-yellow-300 text-xl font-black tracking-[0.2em]" style={{ fontFamily: 'Teko, sans-serif' }}>
+              COMMODITY HP: {cabinetHp}
+            </div>
+          )}
+          <div className="text-2xl md:text-3xl text-gray-200 uppercase tracking-[0.2em] max-w-xl text-center leading-tight" style={{ fontFamily: 'Teko, sans-serif' }}>
+            Stage {ladderIndex + 1} / {ladder.length} — {currentScenario?.title || 'Situation'}
+          </div>
+          {message && (
+            <div className="mk-glow text-yellow-400 text-5xl font-black animate-pulse" style={{
+              fontFamily: 'Orbitron, monospace',
+              WebkitTextStroke: '2px #000',
+              letterSpacing: '0.1em',
+              textShadow: '0 0 30px #fbbf24, 0 0 60px #fbbf24, 3px 3px 0 #000, -2px -2px 0 #000'
+            }}>
+              {message}
+            </div>
+          )}
+          {stageBanner && gameState === 'ROUND_START' && (
+            <div className="text-3xl text-red-400 font-black uppercase tracking-[0.3em]" style={{ fontFamily: 'Teko, sans-serif' }}>
+              {stageBanner}
+            </div>
+          )}
+          {gameState === 'FINISH_HIM' && (
+            <div className="flex flex-col items-center gap-1">
+              <div className="text-red-500 text-5xl font-black tracking-[0.25em]" style={{ fontFamily: 'Teko, sans-serif' }}>
+                CRITIQUE HIM!
+              </div>
+              <div className="text-red-400 text-2xl font-black" style={{ fontFamily: 'Teko, sans-serif', letterSpacing: '0.1em' }}>
+                TIMER: {Math.ceil(finishTimer / 60)} | GET CLOSE + PRESS J
+              </div>
+            </div>
+          )}
+          {toasty && (
+            <div className="text-orange-400 text-4xl font-black animate-pulse" style={{ fontFamily: 'Teko, sans-serif', letterSpacing: '0.15em', textShadow: '0 0 12px #000' }}>
+              TOASTY!
+            </div>
+          )}
+        </div>
+
+        <StatBar
+          health={enemy.hp}
+          meter={enemy.meter}
+          meterName={enemyData.meterName}
+          roundsWon={enemy.roundsWon}
+          side="right"
+          characterName={enemyData.name}
+          portrait={enemyData.portrait}
+          styleLabel={(enemyData.styles && enemyData.styles[enemy.styleIndex]) || undefined}
+          comboCount={enemy.comboCount}
+          comboTitle={getComboTitle(enemy.comboCount, enemyData.comboTitles)}
+        />
+      </div>
+
+      {/* Game world container - translates based on camera + screen shake */}
+      <div
+        className="absolute inset-0 transition-transform duration-100"
+        style={{
+          transform: `translateX(-${cameraOffset}px) translate(${screenShake.x}px, ${screenShake.y}px)`,
+        }}
+      >
+        {/* Background (MK stage art provides ground) */}
+        <div
+          className="absolute inset-0"
+          style={{
+            width: '2400px',
+            height: '1080px',
+            backgroundImage: `url(${stageBg})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center bottom',
+          }}
+        />
+        {gameState === 'BONUS_STAGE' && (
+          <div
+            className="absolute"
+            style={{
+              left: `${cabinetX - 120}px`,
+              bottom: '80px',
+              width: '260px',
+              height: '480px',
+              backgroundImage: "url('/assets/mklk/cabinet_umk3.png')",
+              backgroundSize: 'contain',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center'
+            }}
+          >
+            <div className="absolute -top-6 left-1/2 -translate-x-1/2 w-40 h-2 bg-red-900 border border-yellow-500">
+              <div
+                className="h-full bg-green-400"
+                style={{ width: `${Math.max(0, cabinetHp)}%`, transition: 'width 0.1s linear' }}
+              />
+            </div>
+          </div>
+        )}
+
+      {/* Spectacle Mode Visual Overlay */}
+      {(player.spectacleMode || enemy.spectacleMode) && (
+        <div className="absolute inset-0 pointer-events-none z-5">
+          <div className="absolute inset-0 bg-gradient-to-br from-green-500/10 via-transparent to-blue-500/10 animate-pulse" />
+          <div className="mk-glow absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-green-400 text-4xl font-black opacity-40" style={{
+            fontFamily: 'Orbitron, monospace',
+            letterSpacing: '0.15em',
+            textShadow: '0 0 20px #4ade80, 0 0 40px #4ade80'
+          }}>
+            SPECTACLE MODE
+          </div>
+        </div>
+      )}
+
+      {/* Player */}
+      <div
+        className="absolute transition-all duration-75"
+        style={{
+          left: `${player.x}px`,
+          bottom: `${80 + player.y}px`,
+          filter: player.spectacleMode ? 'hue-rotate(120deg) saturate(2)' : undefined,
+        }}
+      >
+        <NinjaRenderer
+          charId={player.id}
+          action={player.action === 'DIZZY' && gameState === 'FINISH_HIM' ? 'DIZZY' : player.action}
+          frameTick={player.actionFrame}
+          facingLeft={player.facingLeft}
+        />
+        {player.spectacleMode && (
+          <div className="absolute inset-0 border-2 border-green-400 pointer-events-none animate-pulse" />
+        )}
+      </div>
+
+      {/* Enemy */}
+      {gameState !== 'BONUS_STAGE' && (
+        <div
+          className="absolute transition-all duration-75"
+          style={{
+            left: `${enemy.x}px`,
+            bottom: `${80 + enemy.y}px`,
+            filter: enemy.spectacleMode ? 'hue-rotate(120deg) saturate(2)' : undefined,
+          }}
+        >
+          <NinjaRenderer
+            charId={enemy.id}
+            action={enemy.action}
+            frameTick={enemy.actionFrame}
+            facingLeft={enemy.facingLeft}
+          />
+          {enemy.spectacleMode && (
+            <div className="absolute inset-0 border-2 border-green-400 pointer-events-none animate-pulse" />
+          )}
+        </div>
+      )}
+
+      {/* Projectiles */}
+      {projectiles.map(proj => (
+        <div
+          key={proj.id}
+          className="absolute pointer-events-none z-10"
+          style={{
+            left: `${proj.x}px`,
+            bottom: `${proj.y}px`,
+            transform: 'translate(-50%, -50%)'
+          }}
+        >
+          <img src={proj.sprite} alt="projectile" className="w-16 h-16 object-contain" style={{ imageRendering: 'pixelated' }} />
+        </div>
+      ))}
+
+      {/* Blood Effects */}
+      {bloodEffects.map(effect => (
+        <div
+          key={effect.id}
+          className="absolute pointer-events-none z-20"
+          style={{
+            left: `${effect.x}px`,
+            bottom: `${effect.y}px`,
+            transform: 'translate(-50%, -50%)'
+          }}
+        >
+          <img src={effect.src} alt="blood" className="w-24 h-24 object-contain" style={{ imageRendering: 'pixelated' }} />
+        </div>
+      ))}
+
+      {/* Spark Effects */}
+      {sparkEffects.map(effect => (
+        <div
+          key={effect.id}
+          className="absolute pointer-events-none z-30"
+          style={{
+            left: `${effect.x}px`,
+            bottom: `${effect.y}px`,
+            transform: 'translate(-50%, -50%)',
+          }}
+        >
+          <img src={effect.src} alt="spark" className="w-12 h-12 object-contain" style={{ imageRendering: 'pixelated' }} />
+        </div>
+      ))}
+
+      {/* Smoke Effects */}
+      {smokeEffects.map(effect => (
+        <div
+          key={effect.id}
+          className="absolute pointer-events-none z-10"
+          style={{
+            left: `${effect.x}px`,
+            bottom: `${effect.y}px`,
+            transform: 'translate(-50%, -50%)',
+          }}
+        >
+          <img src={effect.src} alt="smoke" className="w-24 h-24 object-contain opacity-80" style={{ imageRendering: 'pixelated' }} />
+        </div>
+      ))}
+
+      {/* Damage Numbers */}
+      {damageNumbers.map(dmg => (
+        <DamageNumber
+          key={dmg.id}
+          id={dmg.id}
+          damage={dmg.damage}
+          x={dmg.x}
+          y={dmg.y}
+          isBlocked={dmg.isBlocked}
+          onComplete={removeDamageNumber}
+        />
+      ))}
+
+      {/* Combo Text Overlays */}
+      {comboTexts.map(combo => (
+        <div
+          key={combo.id}
+          className="absolute pointer-events-none animate-pulse"
+          style={{
+            left: `${combo.x}px`,
+            bottom: `${combo.y}px`,
+            transform: 'translate(-50%, -50%)',
+            animation: 'comboFade 1.5s ease-out forwards',
+          }}
+        >
+          <div
+            className="text-6xl font-black tracking-wider"
+            style={{
+              fontFamily: 'Impact, sans-serif',
+              color: '#FFD700',
+              textShadow: '0 0 20px #FF0000, 0 0 40px #FF0000, 4px 4px 0px #000, -4px -4px 0px #000, 4px -4px 0px #000, -4px 4px 0px #000',
+              WebkitTextStroke: '3px #000',
+              letterSpacing: '0.1em',
+            }}
+          >
+            {combo.text}
+          </div>
+        </div>
+      ))}
+
+      {/* Controls Hint */}
+      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white text-xs bg-black bg-opacity-80 px-4 py-2 rounded border border-yellow-600" style={{
+        fontFamily: 'Teko, sans-serif',
+        letterSpacing: '0.1em',
+        textShadow: '1px 1px 2px #000'
+      }}>
+        ARROWS: MOVE | J/K: PUNCH | L/I: KICK | S: BLOCK | DOWN+J/L: CROUCH | SPACE: PARRY | DOWN+SPACE: SPECTACLE
+      </div>
+      {/* Special Move Hint */}
+      <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 text-yellow-300 text-xs bg-black bg-opacity-80 px-4 py-2 rounded border border-yellow-600" style={{
+        fontFamily: 'Teko, sans-serif',
+        letterSpacing: '0.08em',
+        textShadow: '1px 1px 2px #000'
+      }}>
+        {getSpecialInstructions(player.id)}
+      </div>
+      </div>
+      {/* Close game world container */}
+    </div>
+  );
+}
+
+export default App;

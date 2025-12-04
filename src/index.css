@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+/* PS2 Scanline Base */
+body {
+  background-color: #000;
+  color: white;
+  overflow: hidden;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+/* Combo Text Animation */
+@keyframes comboFade {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+  20% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.2);
+  }
+  40% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  80% {
+    opacity: 1;
+    transform: translate(-50%, -80%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -100%) scale(0.8);
+  }
+}
