@@ -22,6 +22,22 @@ export interface Scenario {
 
 export const ROUND_START_TEXT = ['THESIS...', 'ANTITHESIS...', 'SYNTHESIZE!'];
 
+export const ENDING_SCENARIO: Scenario = {
+  id: 'ending_sequence',
+  title: 'THE FINAL DETOURNEMENT',
+  backgroundClass: 'bg-black',
+  actors: [
+    { characterId: 'debord', position: 'center', action: 'IDLE', direction: 1 }
+  ],
+  dialogue: [
+    { speaker: 'Guy Debord', text: 'You have destroyed the Spectacle...' },
+    { speaker: 'The Winner', text: 'So I am finally free?' },
+    { speaker: 'Guy Debord', text: 'No. You are just a high score.' },
+    { speaker: 'Guy Debord', text: 'The game is the ultimate commodity.' },
+    { speaker: 'Narrator', text: 'INSERT COIN TO RESTART CAPITALISM.' }
+  ]
+};
+
 export const LOSE_SCENARIOS: Record<string, Scenario> = {
   khayati: {
     id: 'lose_khayati',

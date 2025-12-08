@@ -1,4 +1,4 @@
-import { CHARACTERS } from './assets';
+import { CHARACTERS, CHARACTER_DATA } from './assets';
 import type { ActionType } from './assets';
 
 interface NinjaRendererProps {
@@ -34,7 +34,8 @@ export default function NinjaRenderer({ charId, action, frameTick, facingLeft }:
     // Array of PNGs - cycle through based on frameTick
     let frames = asset as readonly string[];
     // Attack/special animations: moderate speed; Jump: very fast to show full tuck cycle; Others: slower
-    const frameStride = action.includes('ATTACK') || action.includes('SPECIAL') ? 3 : action === 'JUMP' ? 3 : 5;
+    const moveData = CHARACTER_DATA[charId]?.moves[action];
+    const frameStride = moveData?.frameSpeed ?? (action.includes('ATTACK') || action.includes('SPECIAL') ? 3 : action === 'JUMP' ? 3 : 5);
     const rawIndex = Math.floor(frameTick / frameStride);
     if ((action.includes('ATTACK') || action.includes('SPECIAL')) && rawIndex >= frames.length && Array.isArray(idleAsset)) {
       frames = idleAsset as readonly string[];
@@ -60,7 +61,8 @@ export default function NinjaRenderer({ charId, action, frameTick, facingLeft }:
   const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
   const targetHeight = screenHeight * 0.45; // 45% of screen for good visibility
   const baseHeight = 100; // Approximate base sprite height in pixels
-  const scale = Math.max(4, targetHeight / baseHeight); // Minimum 4x scale, usually more
+  const charScale = CHARACTER_DATA[charId]?.scale ?? 1.0;
+  const scale = Math.max(4, targetHeight / baseHeight) * charScale; // Minimum 4x scale, usually more
 
   // Force ALL sprites to render at exact same scale regardless of source dimensions
   // Anchor sprites at the bottom center (feet position) instead of center

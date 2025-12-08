@@ -2,6 +2,7 @@ export type ActionType =
   | 'IDLE'
   | 'WALK_FORWARD'
   | 'WALK_BACKWARD'
+  | 'RUN' // Fast dash/run movement
   | 'CROUCH'
   | 'JUMP'
   | 'BLOCK'
@@ -13,6 +14,7 @@ export type ActionType =
   | 'JUMP_ATTACK_K'
   | 'CROUCH_ATTACK_P'
   | 'CROUCH_ATTACK_K'
+  | 'THROW' // Grab/throw attack
   | 'SPECIAL_1'
   | 'SPECIAL_2'
   | 'SPECIAL_3'
@@ -20,6 +22,7 @@ export type ActionType =
   | 'HIT_STUN'
   | 'GRABBED'
   | 'KNOCKDOWN'
+  | 'FALL' // Falling after knockdown
   | 'DIZZY'
   | 'VICTORY'
   | 'DEFEAT';
@@ -39,6 +42,8 @@ export interface MoveData {
   isProjectile?: boolean;
   isGrab?: boolean;
   selfDamage?: number;
+  hitbox?: { width: number; height: number; offsetX?: number; offsetY?: number };
+  frameSpeed?: number;
 }
 
 export interface CharacterData {
@@ -57,6 +62,9 @@ export interface CharacterData {
   moves: {
     [key in ActionType]?: MoveData;
   };
+  projectileOrigin?: { x: number; y: number };
+  projectileSprite?: string;
+  scale?: number;
 }
 
 export const CHARACTERS = {
@@ -91,6 +99,18 @@ export const CHARACTERS = {
       "/assets/liukang/sprites/walk/03.png",
       "/assets/liukang/sprites/walk/02.png",
       "/assets/liukang/sprites/walk/01.png"
+    ],
+    RUN: [
+      "/assets/liukang/sprites/run/01.png",
+      "/assets/liukang/sprites/run/02.png",
+      "/assets/liukang/sprites/run/03.png",
+      "/assets/liukang/sprites/run/04.png",
+      "/assets/liukang/sprites/run/05.png",
+      "/assets/liukang/sprites/run/06.png",
+      "/assets/liukang/sprites/run/07.png",
+      "/assets/liukang/sprites/run/08.png",
+      "/assets/liukang/sprites/run/09.png",
+      "/assets/liukang/sprites/run/10.png"
     ],
     CROUCH: [
       "/assets/liukang/sprites/block/d01.png",
@@ -154,6 +174,15 @@ export const CHARACTERS = {
       "/assets/liukang/sprites/kick/s05.png",
       "/assets/liukang/sprites/kick/s06.png"
     ],
+    THROW: [
+      "/assets/liukang/sprites/throw/01.png",
+      "/assets/liukang/sprites/throw/02.png",
+      "/assets/liukang/sprites/throw/03.png",
+      "/assets/liukang/sprites/throw/04.png",
+      "/assets/liukang/sprites/throw/05.png",
+      "/assets/liukang/sprites/throw/06.png",
+      "/assets/liukang/sprites/throw/07.png"
+    ],
     JUMP_ATTACK_P: [
       "/assets/liukang/sprites/punch/a01.png",
       "/assets/liukang/sprites/punch/a02.png",
@@ -209,6 +238,11 @@ export const CHARACTERS = {
       "/assets/liukang/sprites/beinghit/s06.png",
       "/assets/liukang/sprites/beinghit/s07.png"
     ],
+    FALL: [
+      "/assets/liukang/sprites/fall/f01.png",
+      "/assets/liukang/sprites/fall/f02.png",
+      "/assets/liukang/sprites/fall/f03.png"
+    ],
     BLOCK: [
       "/assets/liukang/sprites/block/01.png",
       "/assets/liukang/sprites/block/02.png",
@@ -219,17 +253,8 @@ export const CHARACTERS = {
       "/assets/liukang/sprites/dizzy/02.png",
       "/assets/liukang/sprites/dizzy/03.png"
     ],
-    VICTORY: "/assets/liukang/sprites/victory/a1.gif",
-    DEFEAT: [
-      "/assets/liukang/sprites/fall/f01.png",
-      "/assets/liukang/sprites/fall/f02.png",
-      "/assets/liukang/sprites/fall/f03.png",
-      "/assets/liukang/sprites/fall/f04.png",
-      "/assets/liukang/sprites/fall/f05.png",
-      "/assets/liukang/sprites/fall/f06.png",
-      "/assets/liukang/sprites/fall/f07.png",
-      "/assets/liukang/sprites/fall/f08.png"
-    ]
+    VICTORY: Array.from({ length: 15 }, (_, i) => `/assets/liukang/sprites/victory/${String(i + 1).padStart(2, '0')}.png`),
+    DEFEAT: Array.from({ length: 8 }, (_, i) => `/assets/liukang/sprites/fall/f${String(i + 1).padStart(2, '0')}.png`)
   },
   bureaucrat: {
     IDLE: [
@@ -262,6 +287,18 @@ export const CHARACTERS = {
       "/assets/stryker/sprites/walk/03.png",
       "/assets/stryker/sprites/walk/02.png",
       "/assets/stryker/sprites/walk/01.png"
+    ],
+    RUN: [
+      "/assets/stryker/sprites/run/01.png",
+      "/assets/stryker/sprites/run/02.png",
+      "/assets/stryker/sprites/run/03.png",
+      "/assets/stryker/sprites/run/04.png",
+      "/assets/stryker/sprites/run/05.png",
+      "/assets/stryker/sprites/run/06.png",
+      "/assets/stryker/sprites/run/07.png",
+      "/assets/stryker/sprites/run/08.png",
+      "/assets/stryker/sprites/run/09.png",
+      "/assets/stryker/sprites/run/10.png"
     ],
     CROUCH: [
       "/assets/stryker/sprites/block/d01.png",
@@ -320,6 +357,15 @@ export const CHARACTERS = {
       "/assets/stryker/sprites/kick/s03.png",
       "/assets/stryker/sprites/kick/s04.png"
     ],
+    THROW: [
+      "/assets/stryker/sprites/throw/01.png",
+      "/assets/stryker/sprites/throw/02.png",
+      "/assets/stryker/sprites/throw/03.png",
+      "/assets/stryker/sprites/throw/04.png",
+      "/assets/stryker/sprites/throw/05.png",
+      "/assets/stryker/sprites/throw/06.png",
+      "/assets/stryker/sprites/throw/07.png"
+    ],
     JUMP_ATTACK_P: [
       "/assets/stryker/sprites/punch/a01.png",
       "/assets/stryker/sprites/punch/a02.png",
@@ -374,6 +420,11 @@ export const CHARACTERS = {
       "/assets/stryker/sprites/beinghit/s06.png",
       "/assets/stryker/sprites/beinghit/s07.png"
     ],
+    FALL: [
+      "/assets/stryker/sprites/fall/f01.png",
+      "/assets/stryker/sprites/fall/f02.png",
+      "/assets/stryker/sprites/fall/f03.png"
+    ],
     BLOCK: [
       "/assets/stryker/sprites/block/01.png",
       "/assets/stryker/sprites/block/02.png",
@@ -384,12 +435,8 @@ export const CHARACTERS = {
       "/assets/stryker/sprites/dizzy/02.png",
       "/assets/stryker/sprites/dizzy/03.png"
     ],
-    VICTORY: "/assets/stryker/sprites/victory/a1.gif",
-    DEFEAT: [
-      "/assets/stryker/sprites/fall/01.png",
-      "/assets/stryker/sprites/fall/02.png",
-      "/assets/stryker/sprites/fall/03.png"
-    ]
+    VICTORY: Array.from({ length: 22 }, (_, i) => `/assets/stryker/sprites/victory/${String(i + 1).padStart(2, '0')}.png`),
+    DEFEAT: Array.from({ length: 8 }, (_, i) => `/assets/stryker/sprites/fall/f${String(i + 1).padStart(2, '0')}.png`)
   },
   professor: {
     IDLE: [
@@ -422,6 +469,18 @@ export const CHARACTERS = {
       "/assets/shangtsung/sprites/walk/03.png",
       "/assets/shangtsung/sprites/walk/02.png",
       "/assets/shangtsung/sprites/walk/01.png"
+    ],
+    RUN: [
+      "/assets/shangtsung/sprites/run/01.png",
+      "/assets/shangtsung/sprites/run/02.png",
+      "/assets/shangtsung/sprites/run/03.png",
+      "/assets/shangtsung/sprites/run/04.png",
+      "/assets/shangtsung/sprites/run/05.png",
+      "/assets/shangtsung/sprites/run/06.png",
+      "/assets/shangtsung/sprites/run/07.png",
+      "/assets/shangtsung/sprites/run/08.png",
+      "/assets/shangtsung/sprites/run/09.png",
+      "/assets/shangtsung/sprites/run/10.png"
     ],
     CROUCH: [
       "/assets/shangtsung/sprites/block/d01.png",
@@ -480,6 +539,25 @@ export const CHARACTERS = {
       "/assets/shangtsung/sprites/kick/s03.png",
       "/assets/shangtsung/sprites/kick/s04.png"
     ],
+    THROW: [
+      "/assets/shangtsung/sprites/throw/01.png",
+      "/assets/shangtsung/sprites/throw/02.png",
+      "/assets/shangtsung/sprites/throw/03.png",
+      "/assets/shangtsung/sprites/throw/04.png",
+      "/assets/shangtsung/sprites/throw/05.png",
+      "/assets/shangtsung/sprites/throw/06.png",
+      "/assets/shangtsung/sprites/throw/07.png",
+      "/assets/shangtsung/sprites/throw/08.png",
+      "/assets/shangtsung/sprites/throw/09.png",
+      "/assets/shangtsung/sprites/throw/10.png",
+      "/assets/shangtsung/sprites/throw/11.png",
+      "/assets/shangtsung/sprites/throw/12.png",
+      "/assets/shangtsung/sprites/throw/13.png",
+      "/assets/shangtsung/sprites/throw/14.png",
+      "/assets/shangtsung/sprites/throw/15.png",
+      "/assets/shangtsung/sprites/throw/16.png",
+      "/assets/shangtsung/sprites/throw/17.png"
+    ],
     JUMP_ATTACK_P: [
       "/assets/shangtsung/sprites/punch/a01.png",
       "/assets/shangtsung/sprites/punch/a02.png",
@@ -536,6 +614,11 @@ export const CHARACTERS = {
       "/assets/shangtsung/sprites/beinghit/s08.png",
       "/assets/shangtsung/sprites/beinghit/s09.png"
     ],
+    FALL: [
+      "/assets/shangtsung/sprites/fall/f01.png",
+      "/assets/shangtsung/sprites/fall/f02.png",
+      "/assets/shangtsung/sprites/fall/f03.png"
+    ],
     BLOCK: [
       "/assets/shangtsung/sprites/block/01.png",
       "/assets/shangtsung/sprites/block/02.png",
@@ -546,12 +629,8 @@ export const CHARACTERS = {
       "/assets/shangtsung/sprites/dizzy/02.png",
       "/assets/shangtsung/sprites/dizzy/03.png"
     ],
-    VICTORY: "/assets/shangtsung/sprites/victory/a1.gif",
-    DEFEAT: [
-      "/assets/shangtsung/sprites/fall/01.png",
-      "/assets/shangtsung/sprites/fall/02.png",
-      "/assets/shangtsung/sprites/fall/03.png"
-    ]
+    VICTORY: Array.from({ length: 16 }, (_, i) => `/assets/shangtsung/sprites/victory/${String(i + 1).padStart(2, '0')}.png`),
+    DEFEAT: Array.from({ length: 9 }, (_, i) => `/assets/shangtsung/sprites/fall/f${String(i + 1).padStart(2, '0')}.png`)
   },
   maoist: {
     IDLE: [
@@ -586,6 +665,18 @@ export const CHARACTERS = {
       "/assets/kunglao/sprites/walk/03.gif",
       "/assets/kunglao/sprites/walk/02.gif",
       "/assets/kunglao/sprites/walk/01.gif"
+    ],
+    RUN: [
+      "/assets/kunglao/sprites/run/01.png",
+      "/assets/kunglao/sprites/run/02.png",
+      "/assets/kunglao/sprites/run/03.png",
+      "/assets/kunglao/sprites/run/04.png",
+      "/assets/kunglao/sprites/run/05.png",
+      "/assets/kunglao/sprites/run/06.png",
+      "/assets/kunglao/sprites/run/07.png",
+      "/assets/kunglao/sprites/run/08.png",
+      "/assets/kunglao/sprites/run/09.png",
+      "/assets/kunglao/sprites/run/10.png"
     ],
     CROUCH: [
       "/assets/kunglao/sprites/block/d01.gif",
@@ -773,8 +864,8 @@ export const CHARACTERS = {
     KNOCKDOWN: "/assets/noobsaibot/sprites/dizzy/01.png",
     BLOCK: "/assets/noobsaibot/sprites/block/03.png",
     DIZZY: "/assets/noobsaibot/sprites/dizzy/01.png",
-    VICTORY: "/assets/noobsaibot/sprites/victory/106.png",
-    DEFEAT: "/assets/noobsaibot/sprites/dizzy/01.png"
+    VICTORY: Array.from({ length: 10 }, (_, i) => `/assets/noobsaibot/sprites/victory/${String(i + 1).padStart(2, '0')}.png`),
+    DEFEAT: Array.from({ length: 7 }, (_, i) => `/assets/noobsaibot/sprites/fall/f${String(i + 1).padStart(2, '0')}.png`)
   }
 } as const;
 
@@ -785,6 +876,9 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
     archetype: 'Ungrateful Student',
     portrait: '/assets/mugshots/liukang.png',
     styles: ['POETRY', 'RIOTS'],
+    scale: 1.0,
+    projectileOrigin: { x: 130, y: 220 },
+    projectileSprite: "/assets/liukang/sprites/special/book-sprites.png",
     stats: {
       speed: 1.2,
       power: 1.0,
@@ -853,7 +947,7 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         active: 20,
         recovery: 20,
         hitStun: 10,
-        rangeX: 600,
+        rangeX: 100,
         rangeY: 40,
         type: 'mid',
         knockback: 5,
@@ -959,6 +1053,9 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
     archetype: 'Deadly Bore',
     portrait: '/assets/mugshots/stryker.png',
     styles: ['NEGOTIATION', 'RECUPERATION'],
+    scale: 1.0,
+    projectileOrigin: { x: 130, y: 210 },
+    projectileSprite: "/assets/props/finalities/bureaucrat-finality-paperwork.png",
     stats: {
       speed: 0.8,
       power: 1.4,
@@ -1027,7 +1124,7 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
       active: 14,
       recovery: 24,
       hitStun: 18,
-      rangeX: 400,
+      rangeX: 100,
       rangeY: 40,
       type: 'mid',
       knockback: 10,
@@ -1134,6 +1231,9 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
     archetype: 'Thought Police',
     portrait: '/assets/mugshots/shangtsung.png',
     styles: ['LECTURE', 'GRADING'],
+    scale: 1.05,
+    projectileOrigin: { x: 130, y: 215 },
+    projectileSprite: "/assets/props/finalities/professor-finality-paper.png",
     stats: {
       speed: 1.0,
       power: 0.9,
@@ -1150,7 +1250,7 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         active: 5,
         recovery: 25,
         hitStun: 15,
-        rangeX: 800,
+        rangeX: 80,
         rangeY: 20,
         type: 'high',
         knockback: 5,
@@ -1203,7 +1303,7 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         active: 10,
         recovery: 30,
         hitStun: 25,
-        rangeX: 800,
+        rangeX: 100,
         rangeY: 100,
         type: 'high',
         knockback: 20,
@@ -1309,6 +1409,9 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
     archetype: 'Little Red Parrot',
     portrait: '/assets/mugshots/kunglao.png',
     styles: ['THEORY', 'PRAXIS'],
+    scale: 1.0,
+    projectileOrigin: { x: 130, y: 210 },
+    projectileSprite: "/assets/props/finalities/little-red-book.png",
     stats: {
       speed: 1.3,
       power: 0.5,
@@ -1378,7 +1481,7 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         active: 20,
         recovery: 25,
         hitStun: 12,
-        rangeX: 500,
+        rangeX: 100,
         rangeY: 40,
         type: 'mid',
         knockback: 8,
@@ -1392,7 +1495,7 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         active: 30,
         recovery: 22,
         hitStun: 18,
-        rangeX: 400,
+        rangeX: 100,
         rangeY: 50,
         type: 'high',
         knockback: 10,
@@ -1486,6 +1589,9 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
     archetype: 'The Master',
     portrait: '/assets/mugshots/noobsaibot.png',
     styles: ['SPECTACLE', 'TRUTH'],
+    scale: 1.15,
+    projectileOrigin: { x: 130, y: 225 },
+    projectileSprite: "/assets/props/finalities/film-strip-finality.png",
     stats: {
       speed: 1.5,
       power: 1.5,
@@ -1554,7 +1660,7 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         active: 20,
         recovery: 20,
         hitStun: 18,
-        rangeX: 600,
+        rangeX: 100,
         rangeY: 40,
         type: 'mid',
         knockback: 8,
