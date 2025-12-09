@@ -3,7 +3,7 @@ import type { ActionType } from '../assets';
 import { CHARACTER_DATA, MOVE_SPEED, MAX_HP } from '../assets';
 import { getStyleModifiers } from '../utils';
 
-export type AIState = 'IDLE' | 'APPROACH' | 'RETREAT' | 'DEFEND' | 'ATTACK' | 'JUMP_IN' | 'ANTI_AIR' | 'ZONING';
+export type AIState = 'IDLE' | 'APPROACH' | 'RETREAT' | 'DEFEND' | 'ATTACK' | 'JUMP_IN' | 'ANTI_AIR' | 'ZONING' | 'FATALITY_SETUP';
 
 export interface AIContext {
   state: AIState;
@@ -93,11 +93,16 @@ export const updateAI = (
   const isFar = dist >= 400;
   const opponentAttacking = opponent.action.includes('ATTACK') || opponent.action.includes('SPECIAL');
   const opponentAirborne = opponent.y > 0;
+  const opponentDizzy = opponent.action === 'DIZZY';
 
   // --- TRANSITIONS ---
 
+  // 0. Fatality Opportunity
+  if (opponentDizzy) {
+    nextCtx.state = 'FATALITY_SETUP';
+  }
   // 1. Anti-Air (High Priority)
-  if (opponentAirborne && isClose && Math.random() < 0.85) {
+  else if (opponentAirborne && isClose && Math.random() < 0.85) {
     nextCtx.state = 'ANTI_AIR';
   }
   // 2. Defend if threatened
@@ -228,6 +233,25 @@ export const updateAI = (
 
     case 'IDLE':
        updates.action = 'IDLE';
+       updates.isBlocking = false;
+       break;
+
+    case 'FATALITY_SETUP':
+       // Walk up close
+       if (dist > 80) {
+         if (ai.x < opponent.x) {
+           updates.x = ai.x + MOVE_SPEED * aiData.stats.speed;
+           updates.facingLeft = false;
+         } else {
+           updates.x = ai.x - MOVE_SPEED * aiData.stats.speed;
+           updates.facingLeft = true;
+         }
+         updates.action = 'WALK_FORWARD';
+       } else {
+         // Perform Fatality (Any punch usually works with my new logic, but let's use LP)
+         updates.action = 'ATTACK_LP'; 
+         updates.actionFrame = 0;
+       }
        updates.isBlocking = false;
        break;
   }

@@ -18,6 +18,10 @@ export interface FighterState {
   spectacleMode: boolean;
   spectacleFrames: number;
   styleIndex: number;
+  stamina: number;         // Run meter (0-100)
+  isJuggled: boolean;      // Currently being juggled in air
+  juggleCount: number;     // Number of hits during current juggle
+  juggleGravity: number;   // Modified gravity during juggle
 }
 
 export interface GameStateProps {

@@ -10,6 +10,8 @@ export type ActionType =
   | 'ATTACK_RP'  // Right Punch
   | 'ATTACK_LK'  // Light Kick
   | 'ATTACK_RK'  // Right Kick
+  | 'UPPERCUT'   // Down + HP - Iconic MK uppercut
+  | 'SWEEP'      // Down + LK - Leg sweep
   | 'JUMP_ATTACK_P'
   | 'JUMP_ATTACK_K'
   | 'CROUCH_ATTACK_P'
@@ -44,6 +46,8 @@ export interface MoveData {
   selfDamage?: number;
   hitbox?: { width: number; height: number; offsetX?: number; offsetY?: number };
   frameSpeed?: number;
+  launchForce?: number;  // Upward launch velocity (for uppercuts)
+  groundBounce?: boolean; // Forces knockdown on hit
 }
 
 export interface CharacterData {
@@ -158,6 +162,23 @@ export const CHARACTERS = {
       "/assets/liukang/sprites/kick/r06.png",
       "/assets/liukang/sprites/kick/r07.png",
       "/assets/liukang/sprites/kick/r08.png"
+    ],
+    UPPERCUT: [
+      "/assets/liukang/sprites/punch/u01.png",
+      "/assets/liukang/sprites/punch/u02.png",
+      "/assets/liukang/sprites/punch/u03.png",
+      "/assets/liukang/sprites/punch/u04.png",
+      "/assets/liukang/sprites/punch/u05.png"
+    ],
+    SWEEP: [
+      "/assets/liukang/sprites/kick/s01.png",
+      "/assets/liukang/sprites/kick/s02.png",
+      "/assets/liukang/sprites/kick/s03.png",
+      "/assets/liukang/sprites/kick/s04.png",
+      "/assets/liukang/sprites/kick/s05.png",
+      "/assets/liukang/sprites/kick/s06.png",
+      "/assets/liukang/sprites/kick/s07.png",
+      "/assets/liukang/sprites/kick/s08.png"
     ],
     CROUCH_ATTACK_P: [
       "/assets/liukang/sprites/punch/u01.png",
@@ -347,6 +368,23 @@ export const CHARACTERS = {
       "/assets/stryker/sprites/kick/r07.png",
       "/assets/stryker/sprites/kick/r08.png"
     ],
+    UPPERCUT: [
+      "/assets/stryker/sprites/punch/u01.png",
+      "/assets/stryker/sprites/punch/u02.png",
+      "/assets/stryker/sprites/punch/u03.png",
+      "/assets/stryker/sprites/punch/u04.png",
+      "/assets/stryker/sprites/punch/u05.png"
+    ],
+    SWEEP: [
+      "/assets/stryker/sprites/kick/s01.png",
+      "/assets/stryker/sprites/kick/s02.png",
+      "/assets/stryker/sprites/kick/s03.png",
+      "/assets/stryker/sprites/kick/s04.png",
+      "/assets/stryker/sprites/kick/s05.png",
+      "/assets/stryker/sprites/kick/s06.png",
+      "/assets/stryker/sprites/kick/s07.png",
+      "/assets/stryker/sprites/kick/s08.png"
+    ],
     CROUCH_ATTACK_P: [
       "/assets/stryker/sprites/punch/08.png",
       "/assets/stryker/sprites/punch/09.png"
@@ -396,10 +434,11 @@ export const CHARACTERS = {
       "/assets/stryker/sprites/special/304.png"
     ],
     SPECIAL_4: [
-      "/assets/stryker/sprites/special/201.png",
-      "/assets/stryker/sprites/special/202.png",
-      "/assets/stryker/sprites/special/203.png",
-      "/assets/stryker/sprites/special/204.png"
+      "/assets/stryker/sprites/special/401.png",
+      "/assets/stryker/sprites/special/402.png",
+      "/assets/stryker/sprites/special/403.png",
+      "/assets/stryker/sprites/special/404.png",
+      "/assets/stryker/sprites/special/405.png"
     ],
     HIT_STUN: [
       "/assets/stryker/sprites/beinghit/h01.png",
@@ -528,6 +567,23 @@ export const CHARACTERS = {
       "/assets/shangtsung/sprites/kick/r06.png",
       "/assets/shangtsung/sprites/kick/r07.png",
       "/assets/shangtsung/sprites/kick/r08.png"
+    ],
+    UPPERCUT: [
+      "/assets/shangtsung/sprites/punch/u01.png",
+      "/assets/shangtsung/sprites/punch/u02.png",
+      "/assets/shangtsung/sprites/punch/u03.png",
+      "/assets/shangtsung/sprites/punch/u04.png",
+      "/assets/shangtsung/sprites/punch/u05.png",
+      "/assets/shangtsung/sprites/punch/u06.png"
+    ],
+    SWEEP: [
+      "/assets/shangtsung/sprites/kick/s01.png",
+      "/assets/shangtsung/sprites/kick/s02.png",
+      "/assets/shangtsung/sprites/kick/s03.png",
+      "/assets/shangtsung/sprites/kick/s04.png",
+      "/assets/shangtsung/sprites/kick/s05.png",
+      "/assets/shangtsung/sprites/kick/s06.png",
+      "/assets/shangtsung/sprites/kick/s07.png"
     ],
     CROUCH_ATTACK_P: [
       "/assets/shangtsung/sprites/punch/08.png",
@@ -725,6 +781,23 @@ export const CHARACTERS = {
       "/assets/kunglao/sprites/kick/r07.png",
       "/assets/kunglao/sprites/kick/r08.png"
     ],
+    UPPERCUT: [
+      "/assets/kunglao/sprites/punch/u01.gif",
+      "/assets/kunglao/sprites/punch/u02.gif",
+      "/assets/kunglao/sprites/punch/u03.gif",
+      "/assets/kunglao/sprites/punch/u04.gif",
+      "/assets/kunglao/sprites/punch/u05.gif"
+    ],
+    SWEEP: [
+      "/assets/kunglao/sprites/kick/s01.gif",
+      "/assets/kunglao/sprites/kick/s02.gif",
+      "/assets/kunglao/sprites/kick/s03.gif",
+      "/assets/kunglao/sprites/kick/s04.gif",
+      "/assets/kunglao/sprites/kick/s05.gif",
+      "/assets/kunglao/sprites/kick/s06.png",
+      "/assets/kunglao/sprites/kick/s07.png",
+      "/assets/kunglao/sprites/kick/s08.png"
+    ],
     CROUCH_ATTACK_P: [
       "/assets/kunglao/sprites/punch/08.gif",
       "/assets/kunglao/sprites/punch/09.gif"
@@ -736,14 +809,14 @@ export const CHARACTERS = {
       "/assets/kunglao/sprites/kick/s04.png"
     ],
     JUMP_ATTACK_P: [
-      "/assets/kunglao/sprites/punch/a01.png",
-      "/assets/kunglao/sprites/punch/a02.png",
-      "/assets/kunglao/sprites/punch/a03.png"
+      "/assets/kunglao/sprites/punch/a01.gif",
+      "/assets/kunglao/sprites/punch/a02.gif",
+      "/assets/kunglao/sprites/punch/a03.gif"
     ],
     JUMP_ATTACK_K: [
-      "/assets/kunglao/sprites/kick/a01.png",
-      "/assets/kunglao/sprites/kick/a02.png",
-      "/assets/kunglao/sprites/kick/a03.png",
+      "/assets/kunglao/sprites/kick/a01.gif",
+      "/assets/kunglao/sprites/kick/a02.gif",
+      "/assets/kunglao/sprites/kick/a03.gif",
       "/assets/kunglao/sprites/kick/a04.png",
       "/assets/kunglao/sprites/kick/a05.png",
       "/assets/kunglao/sprites/kick/a06.png"
@@ -791,9 +864,9 @@ export const CHARACTERS = {
       "/assets/kunglao/sprites/beinghit/s08.gif"
     ],
     BLOCK: [
-      "/assets/kunglao/sprites/block/01.png",
-      "/assets/kunglao/sprites/block/02.png",
-      "/assets/kunglao/sprites/block/03.png"
+      "/assets/kunglao/sprites/block/01.gif",
+      "/assets/kunglao/sprites/block/02.gif",
+      "/assets/kunglao/sprites/block/03.gif"
     ],
     DIZZY: [
       "/assets/kunglao/sprites/dizzy/01.png",
@@ -804,7 +877,12 @@ export const CHARACTERS = {
     DEFEAT: [
       "/assets/kunglao/sprites/fall/f01.gif",
       "/assets/kunglao/sprites/fall/f02.gif",
-      "/assets/kunglao/sprites/fall/f03.gif"
+      "/assets/kunglao/sprites/fall/f03.gif",
+      "/assets/kunglao/sprites/fall/f04.gif",
+      "/assets/kunglao/sprites/fall/f05.gif",
+      "/assets/kunglao/sprites/fall/f06.gif",
+      "/assets/kunglao/sprites/fall/f07.gif",
+      "/assets/kunglao/sprites/fall/f08.gif"
     ]
   },
   debord: {
@@ -842,6 +920,23 @@ export const CHARACTERS = {
       "/assets/noobsaibot/sprites/kick/06.png",
       "/assets/noobsaibot/sprites/kick/12.png",
       "/assets/noobsaibot/sprites/kick/12.png"
+    ],
+    UPPERCUT: [
+      "/assets/noobsaibot/sprites/punch/u01.png",
+      "/assets/noobsaibot/sprites/punch/u02.png",
+      "/assets/noobsaibot/sprites/punch/u03.png",
+      "/assets/noobsaibot/sprites/punch/u04.png",
+      "/assets/noobsaibot/sprites/punch/u05.png",
+      "/assets/noobsaibot/sprites/punch/u06.png"
+    ],
+    SWEEP: [
+      "/assets/noobsaibot/sprites/kick/s01.png",
+      "/assets/noobsaibot/sprites/kick/s02.png",
+      "/assets/noobsaibot/sprites/kick/s03.png",
+      "/assets/noobsaibot/sprites/kick/s04.png",
+      "/assets/noobsaibot/sprites/kick/s05.png",
+      "/assets/noobsaibot/sprites/kick/s06.png",
+      "/assets/noobsaibot/sprites/kick/s07.png"
     ],
     CROUCH_ATTACK_P: "/assets/noobsaibot/sprites/punch/06.png",
     CROUCH_ATTACK_K: "/assets/noobsaibot/sprites/kick/12.png",
@@ -887,6 +982,20 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
     meterName: 'Class Consciousness',
     comboTitles: ['AGITATED', 'ORGANIZED', 'OCCUPIED', 'REVOLTED', 'TOTAL REV.'],
     moves: {
+      THROW: {
+        name: 'Throw',
+        damage: 20,
+        meterGain: 10,
+        startup: 5,
+        active: 5,
+        recovery: 20,
+        hitStun: 40,
+        rangeX: 60,
+        rangeY: 50,
+        type: 'mid',
+        knockback: 100,
+        isGrab: true
+      },
       ATTACK_LP: {
         name: 'Critique',
         damage: 4,
@@ -993,8 +1102,36 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         type: 'mid',
         knockback: 25
       },
+      UPPERCUT: {
+        name: 'Revolutionary Uppercut',
+        damage: 40,
+        meterGain: 20,
+        startup: 8,
+        active: 8,
+        recovery: 12,
+        hitStun: 60,
+        rangeX: 80,
+        rangeY: 140,
+        type: 'high',
+        knockback: 10,
+        launchForce: 25
+      },
+      SWEEP: {
+        name: 'Dialectical Sweep',
+        damage: 15,
+        meterGain: 15,
+        startup: 9,
+        active: 12,
+        recovery: 22,
+        hitStun: 60,
+        rangeX: 95,
+        rangeY: 35,
+        type: 'low',
+        knockback: 15,
+        groundBounce: true
+      },
       CROUCH_ATTACK_P: {
-        name: 'Uppercut',
+        name: 'Crouching Punch',
         damage: 14,
         meterGain: 12,
         startup: 8,
@@ -1007,7 +1144,7 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         knockback: 20
       },
       CROUCH_ATTACK_K: {
-        name: 'Sweep',
+        name: 'Crouching Kick',
         damage: 10,
         meterGain: 12,
         startup: 8,
@@ -1064,6 +1201,20 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
     meterName: 'Recuperation',
     comboTitles: ['FILED', 'AUDITED', 'APPROVED', 'STAMPED', 'LIQUIDATED'],
     moves: {
+      THROW: {
+        name: 'Throw',
+        damage: 20,
+        meterGain: 10,
+        startup: 5,
+        active: 5,
+        recovery: 20,
+        hitStun: 40,
+        rangeX: 60,
+        rangeY: 50,
+        type: 'mid',
+        knockback: 100,
+        isGrab: true
+      },
       ATTACK_LP: {
         name: 'Procedure',
         damage: 5,
@@ -1171,6 +1322,34 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         knockback: 20,
         isGrab: true
       },
+      UPPERCUT: {
+        name: 'Authoritarian Uppercut',
+        damage: 40,
+        meterGain: 20,
+        startup: 8,
+        active: 8,
+        recovery: 12,
+        hitStun: 60,
+        rangeX: 80,
+        rangeY: 140,
+        type: 'high',
+        knockback: 10,
+        launchForce: 25
+      },
+      SWEEP: {
+        name: 'Bureaucratic Sweep',
+        damage: 15,
+        meterGain: 15,
+        startup: 9,
+        active: 12,
+        recovery: 22,
+        hitStun: 60,
+        rangeX: 95,
+        rangeY: 35,
+        type: 'low',
+        knockback: 15,
+        groundBounce: true
+      },
       CROUCH_ATTACK_P: {
         name: 'Low Jab',
         damage: 5,
@@ -1185,7 +1364,7 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         knockback: 1
       },
       CROUCH_ATTACK_K: {
-        name: 'Sweep',
+        name: 'Crouching Kick',
         damage: 12,
         meterGain: 12,
         startup: 10,
@@ -1242,6 +1421,20 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
     meterName: 'Tenure',
     comboTitles: ['CITED', 'REVIEWED', 'PEER REVIEWED', 'PUBLISHED', 'TENURED!'],
     moves: {
+      THROW: {
+        name: 'Throw',
+        damage: 20,
+        meterGain: 10,
+        startup: 5,
+        active: 5,
+        recovery: 20,
+        hitStun: 40,
+        rangeX: 60,
+        rangeY: 50,
+        type: 'mid',
+        knockback: 100,
+        isGrab: true
+      },
       ATTACK_LP: {
         name: 'Questionnaire',
         damage: 5,
@@ -1349,6 +1542,34 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         type: 'high',
         knockback: 18
       },
+      UPPERCUT: {
+        name: 'Academic Uppercut',
+        damage: 40,
+        meterGain: 20,
+        startup: 8,
+        active: 8,
+        recovery: 12,
+        hitStun: 60,
+        rangeX: 80,
+        rangeY: 140,
+        type: 'high',
+        knockback: 10,
+        launchForce: 25
+      },
+      SWEEP: {
+        name: 'Professorial Sweep',
+        damage: 15,
+        meterGain: 15,
+        startup: 9,
+        active: 12,
+        recovery: 22,
+        hitStun: 60,
+        rangeX: 95,
+        rangeY: 35,
+        type: 'low',
+        knockback: 15,
+        groundBounce: true
+      },
       CROUCH_ATTACK_P: {
         name: 'Footnote',
         damage: 4,
@@ -1420,6 +1641,20 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
     meterName: 'Dogma',
     comboTitles: ['STRUGGLED', 'CRITICIZED', 'SELF-CRITICIZED', 'PURGED', 'REV. GUARDED'],
     moves: {
+      THROW: {
+        name: 'Throw',
+        damage: 20,
+        meterGain: 10,
+        startup: 5,
+        active: 5,
+        recovery: 20,
+        hitStun: 40,
+        rangeX: 60,
+        rangeY: 50,
+        type: 'mid',
+        knockback: 100,
+        isGrab: true
+      },
       ATTACK_LP: {
         name: 'Little Red Jab',
         damage: 4,
@@ -1529,6 +1764,34 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         knockback: 10,
         selfDamage: 5
       },
+      UPPERCUT: {
+        name: 'Maoist Uppercut',
+        damage: 40,
+        meterGain: 20,
+        startup: 8,
+        active: 8,
+        recovery: 12,
+        hitStun: 60,
+        rangeX: 80,
+        rangeY: 140,
+        type: 'high',
+        knockback: 10,
+        launchForce: 25
+      },
+      SWEEP: {
+        name: 'Revolutionary Sweep',
+        damage: 15,
+        meterGain: 15,
+        startup: 9,
+        active: 12,
+        recovery: 22,
+        hitStun: 60,
+        rangeX: 95,
+        rangeY: 35,
+        type: 'low',
+        knockback: 15,
+        groundBounce: true
+      },
       CROUCH_ATTACK_P: {
         name: 'Pocket Dialectics',
         damage: 4,
@@ -1543,7 +1806,7 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         knockback: 1
       },
       CROUCH_ATTACK_K: {
-        name: 'Sweep the Revisionists',
+        name: 'Crouching Kick',
         damage: 10,
         meterGain: 10,
         startup: 8,
@@ -1600,6 +1863,20 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
     meterName: 'Negation',
     comboTitles: ['MEDIATED', 'ILLUSIONED', 'SPECTACLED', 'BORED', 'SILENCED'],
     moves: {
+      THROW: {
+        name: 'Throw',
+        damage: 20,
+        meterGain: 10,
+        startup: 5,
+        active: 5,
+        recovery: 20,
+        hitStun: 40,
+        rangeX: 60,
+        rangeY: 50,
+        type: 'mid',
+        knockback: 100,
+        isGrab: true
+      },
       ATTACK_LP: {
         name: 'Negation Jab',
         damage: 6,
@@ -1706,6 +1983,34 @@ export const CHARACTER_DATA: Record<string, CharacterData> = {
         type: 'mid',
         knockback: 22,
         isGrab: true
+      },
+      UPPERCUT: {
+        name: 'Spectacular Uppercut',
+        damage: 40,
+        meterGain: 20,
+        startup: 8,
+        active: 8,
+        recovery: 12,
+        hitStun: 60,
+        rangeX: 80,
+        rangeY: 140,
+        type: 'high',
+        knockback: 10,
+        launchForce: 25
+      },
+      SWEEP: {
+        name: 'Situationist Sweep',
+        damage: 15,
+        meterGain: 15,
+        startup: 9,
+        active: 12,
+        recovery: 22,
+        hitStun: 60,
+        rangeX: 95,
+        rangeY: 35,
+        type: 'low',
+        knockback: 15,
+        groundBounce: true
       },
       CROUCH_ATTACK_P: {
         name: 'Underground Hit',

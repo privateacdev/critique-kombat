@@ -169,6 +169,7 @@ function App() {
   const [hitstopFrames, setHitstopFrames] = useState(0); // Freeze game on hit
   const [screenShake, setScreenShake] = useState({ x: 0, y: 0 }); // Screen shake offset
   const fatalityActiveRef = useRef(false);
+  const fatalityAttackerRef = useRef<string | null>(null); // Store attacker ID to avoid state timing issues
   const bonusHitLock = useRef<{ action: ActionType | null } | null>(null); // Prevent multi-hit per swing in bonus stage
   const rootRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<FighterState | null>(null);
@@ -207,7 +208,11 @@ function App() {
     stunFrames: 0,
     spectacleMode: false,
     spectacleFrames: 0,
-    styleIndex: 0
+    styleIndex: 0,
+    stamina: 100,
+    isJuggled: false,
+    juggleCount: 0,
+    juggleGravity: GRAVITY
   });
 
   const [enemy, setEnemy] = useState<FighterState>({
@@ -227,7 +232,11 @@ function App() {
     stunFrames: 0,
     spectacleMode: false,
     spectacleFrames: 0,
-    styleIndex: 0
+    styleIndex: 0,
+    stamina: 100,
+    isJuggled: false,
+    juggleCount: 0,
+    juggleGravity: GRAVITY
   });
   // Initialize refs once state is created
   if (!playerRef.current) playerRef.current = player;
@@ -498,7 +507,11 @@ function App() {
       stunFrames: 0,
       spectacleMode: false,
       spectacleFrames: 0,
-      styleIndex: 0
+      styleIndex: 0,
+      stamina: 100,
+      isJuggled: false,
+      juggleCount: 0,
+      juggleGravity: GRAVITY
     }));
 
     setEnemy(prev => ({
@@ -519,7 +532,11 @@ function App() {
       stunFrames: 0,
       spectacleMode: false,
       spectacleFrames: 0,
-      styleIndex: 0
+      styleIndex: 0,
+      stamina: 100,
+      isJuggled: false,
+      juggleCount: 0,
+      juggleGravity: GRAVITY
     }));
 
     setMessage(ROUND_START_TEXT[0]);
@@ -531,6 +548,21 @@ function App() {
   // Stable callback for fatality completion to prevent component remounting
   const handleFatalityComplete = useCallback(() => {
     console.log('✅ Fatality onComplete called');
+
+    // Clear fatality refs
+    fatalityAttackerRef.current = null;
+
+    // If enemy performed fatality on player
+    if (lastWinner === 'enemy') {
+       const loseScenario = LOSE_SCENARIOS[player.id] || LOSE_SCENARIOS['khayati'];
+       setCurrentScenario(loseScenario);
+       setCutsceneIndex(0);
+       setMessage('GAME OVER');
+       setGameState('LOSE_CUTSCENE');
+       setFatalityVictim(null);
+       return;
+    }
+
     console.log('📋 Current ladderOrder:', ladderOrder);
     setFatalityVictim(null);
 
@@ -575,15 +607,15 @@ function App() {
       setFatalityTriggered(false);
 
       // Reset rounds won for new match
-      setPlayer(prev => ({ ...prev, roundsWon: 0, hp: MAX_HP, meter: 0 }));
-      setEnemy(prev => ({ ...prev, roundsWon: 0, hp: MAX_HP, meter: 0 }));
+      setPlayer(prev => ({ ...prev, roundsWon: 0, hp: MAX_HP, meter: 0, stamina: 100, isJuggled: false, juggleCount: 0, juggleGravity: GRAVITY }));
+      setEnemy(prev => ({ ...prev, roundsWon: 0, hp: MAX_HP, meter: 0, stamina: 100, isJuggled: false, juggleCount: 0, juggleGravity: GRAVITY }));
 
       setGameState('INTRO_CUTSCENE');
       setCutsceneIndex(0);
 
       return nextIndex;
     });
-  }, [ladderOrder, player.id]);
+  }, [ladderOrder, player.id, lastWinner]);
 
   const beginLadder = (playerId: keyof typeof CHARACTER_DATA) => {
     console.log('🎮 BEGIN LADDER CALLED', { playerId, BASE_LADDER, unlockedDebord });
@@ -625,7 +657,11 @@ function App() {
       stunFrames: 0,
       spectacleMode: false,
       spectacleFrames: 0,
-      styleIndex: 0
+      styleIndex: 0,
+      stamina: 100,
+      isJuggled: false,
+      juggleCount: 0,
+      juggleGravity: GRAVITY
     }));
 
     setEnemy(prev => ({
@@ -646,7 +682,11 @@ function App() {
       stunFrames: 0,
       spectacleMode: false,
       spectacleFrames: 0,
-      styleIndex: 0
+      styleIndex: 0,
+      stamina: 100,
+      isJuggled: false,
+      juggleCount: 0,
+      juggleGravity: GRAVITY
     }));
 
     const scenario = selectScenario(playerId, opponentId);
@@ -698,7 +738,10 @@ function App() {
       if (gameState === 'ENDING_CUTSCENE') {
         setGameState('TITLE');
       } else if (gameState === 'LOSE_CUTSCENE') {
+        // Reset game state when returning to title after loss
         setGameState('TITLE');
+        setLastWinner(null);
+        setLadderIndex(0);
       } else {
         startRoundFromScenario();
       }
@@ -727,13 +770,14 @@ function App() {
 
       // Allow inputs during fighting, bonus, and finish windows
       if (!(gameState === 'FIGHTING' || gameState === 'BONUS_STAGE' || gameState === 'FINISH_HIM')) return;
-      // New controls: a=LP, w=RP, s=LK, e=RK
-      const attackKey = ['a', 'w', 's', 'e'].includes(e.key);
+      // New controls: a=LP, w=RP, s=LK, e=RK (case insensitive)
+      const key = e.key.toLowerCase();
+      const attackKey = ['a', 'w', 's', 'e'].includes(key);
       // Ignore key repeat for attack buttons so we only queue one attack per tap
       if (attackKey && e.repeat) return;
 
-      const alreadyHeld = keysPressed.current.has(e.key);
-      keysPressed.current.add(e.key);
+      const alreadyHeld = keysPressed.current.has(key);
+      keysPressed.current.add(key);
 
       // Only enqueue an attack when the key transitions from up -> down
       if (attackKey && !alreadyHeld) {
@@ -749,31 +793,47 @@ function App() {
           const canAct = (gameState === 'FIGHTING' || gameState === 'BONUS_STAGE') && next.stunFrames === 0;
           if (!canAct || isAttacking(next)) return next;
 
-          const isCrouching = keysPressed.current.has('ArrowDown') && next.y === 0;
+          const isDownHeld = keysPressed.current.has('ArrowDown');
+          const isCrouching = isDownHeld && next.y === 0;
           const airborne = next.y > 0;
 
+          // Check if down was pressed recently (within last 8 inputs for lenient timing)
+          const recentDown = inputBuffer.current.slice(-8).includes('DOWN');
+
           // Attack mapping: a=Punch(LP), w=Punch(RP), s=Kick(LK), e=Kick(RK)
-          // For jump/crouch variants, we map 'a'/'w' to Punch variants and 's'/'e' to Kick variants
+          // MK-style special moves: DOWN+HP=UPPERCUT, DOWN+LK=SWEEP
+          // Lenient input: Check if down is held OR was pressed very recently
           if (airborne) {
-            if (e.key === 'a' || e.key === 'w') performAttack(next, 'JUMP_ATTACK_P');
-            else if (e.key === 's' || e.key === 'e') performAttack(next, 'JUMP_ATTACK_K');
+            if (key === 'a' || key === 'w') performAttack(next, 'JUMP_ATTACK_P');
+            else if (key === 's' || key === 'e') performAttack(next, 'JUMP_ATTACK_K');
+          } else if ((isDownHeld || recentDown) && key === 'w') {
+            // DOWN + HP = UPPERCUT (iconic MK move) - lenient buffered input
+            performAttack(next, 'UPPERCUT');
+          } else if ((isDownHeld || recentDown) && key === 's') {
+            // DOWN + LK = SWEEP (iconic MK move) - lenient buffered input
+            performAttack(next, 'SWEEP');
           } else if (isCrouching) {
-            if (e.key === 'a' || e.key === 'w') performAttack(next, 'CROUCH_ATTACK_P');
-            else if (e.key === 's' || e.key === 'e') performAttack(next, 'CROUCH_ATTACK_K');
+            // Other crouch attacks
+            if (key === 'a') performAttack(next, 'CROUCH_ATTACK_P');
+            else if (key === 'e') performAttack(next, 'CROUCH_ATTACK_K');
           } else {
-            if (e.key === 'a') performAttack(next, 'ATTACK_LP');
-            else if (e.key === 'w') performAttack(next, 'ATTACK_RP');
-            else if (e.key === 's') performAttack(next, 'ATTACK_LK');
-            else if (e.key === 'e') performAttack(next, 'ATTACK_RK');
+            if (key === 'a') {
+              const dist = enemyRef.current ? Math.abs(next.x - enemyRef.current.x) : 999;
+              if (dist < 80) performAttack(next, 'THROW');
+              else performAttack(next, 'ATTACK_LP');
+            }
+            else if (key === 'w') performAttack(next, 'ATTACK_RP');
+            else if (key === 's') performAttack(next, 'ATTACK_LK');
+            else if (key === 'e') performAttack(next, 'ATTACK_RK');
           }
           firedImmediate = true;
           return next;
         });
         // Only queue the tap if nothing fired immediately (e.g., stunned)
         if (!firedImmediate) {
-          attackTaps.current.add(e.key);
+          attackTaps.current.add(key);
         } else {
-          attackTaps.current.delete(e.key);
+          attackTaps.current.delete(key);
         }
       }
 
@@ -786,7 +846,7 @@ function App() {
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      keysPressed.current.delete(e.key);
+      keysPressed.current.delete(e.key.toLowerCase());
       dbg('KEYUP', { key: e.key, size: keysPressed.current.size, gameState });
     };
 
@@ -871,8 +931,8 @@ function App() {
                   setCurrentScenario(scenario);
 
                   // Reset rounds won for new match
-                  setPlayer(prev => ({ ...prev, roundsWon: 0, hp: MAX_HP, meter: 0 }));
-                  setEnemy(prev => ({ ...prev, roundsWon: 0, hp: MAX_HP, meter: 0 }));
+                  setPlayer(prev => ({ ...prev, roundsWon: 0, hp: MAX_HP, meter: 0, stamina: 100, isJuggled: false, juggleCount: 0, juggleGravity: GRAVITY }));
+                  setEnemy(prev => ({ ...prev, roundsWon: 0, hp: MAX_HP, meter: 0, stamina: 100, isJuggled: false, juggleCount: 0, juggleGravity: GRAVITY }));
 
                   setGameState('INTRO_CUTSCENE');
                   setCutsceneIndex(0);
@@ -1002,8 +1062,8 @@ function App() {
               setCurrentScenario(scenario);
 
               // Reset rounds won for new match
-              setPlayer(prev => ({ ...prev, roundsWon: 0, hp: MAX_HP, meter: 0 }));
-              setEnemy(prev => ({ ...prev, roundsWon: 0, hp: MAX_HP, meter: 0 }));
+              setPlayer(prev => ({ ...prev, roundsWon: 0, hp: MAX_HP, meter: 0, stamina: 100, isJuggled: false, juggleCount: 0, juggleGravity: GRAVITY }));
+              setEnemy(prev => ({ ...prev, roundsWon: 0, hp: MAX_HP, meter: 0, stamina: 100, isJuggled: false, juggleCount: 0, juggleGravity: GRAVITY }));
 
               setGameState('INTRO_CUTSCENE');
               setCutsceneIndex(0);
@@ -1031,7 +1091,8 @@ function App() {
     let newState = { ...fighter };
 
     // Lock loser in dizzy during FINISH_HIM
-    if (!isPlayer && gameState === 'FINISH_HIM') {
+    const isLoser = (isPlayer && lastWinner === 'enemy') || (!isPlayer && lastWinner === 'player');
+    if (gameState === 'FINISH_HIM' && isLoser) {
       newState.action = 'DIZZY';
       newState.stunFrames = 999;
       newState.velocityX = 0;
@@ -1040,6 +1101,11 @@ function App() {
 
     // Update action frame
     newState.actionFrame++;
+
+    // Regen Stamina
+    if (newState.action !== 'RUN' && newState.stamina < 100) {
+      newState.stamina = Math.min(100, newState.stamina + 0.5);
+    }
 
     // Handle Spectacle Mode countdown
     if (newState.spectacleMode) {
@@ -1063,12 +1129,19 @@ function App() {
 
     // Apply physics
     if (newState.y > 0 || newState.velocityY !== 0) {
-      newState.velocityY -= GRAVITY;
+      // Use juggle gravity during juggle combos for slower fall
+      const gravityToApply = newState.isJuggled ? newState.juggleGravity : GRAVITY;
+      newState.velocityY -= gravityToApply;
       newState.y += newState.velocityY;
 
       if (newState.y <= 0) {
         newState.y = 0;
         newState.velocityY = 0;
+
+        // Reset juggle state on landing
+        newState.isJuggled = false;
+        newState.juggleCount = 0;
+        newState.juggleGravity = GRAVITY;
 
         // Handle landing from knockdown - stay grounded
         if (newState.action === 'KNOCKDOWN') {
@@ -1099,7 +1172,7 @@ function App() {
 
     // Handle player input; allow control during FINISH_HIM even if previously stunned
     const allowPlayerControl = gameState === 'FINISH_HIM'
-      ? true
+      ? lastWinner === 'player'
       : (gameState === 'FIGHTING' || gameState === 'BONUS_STAGE') && newState.stunFrames === 0;
 
     if (isPlayer) {
@@ -1119,12 +1192,24 @@ function App() {
     }
 
     // Handle AI
-    if (!isPlayer && gameState === 'FIGHTING') {
+    const canAIAct = !isPlayer && (gameState === 'FIGHTING' || (gameState === 'FINISH_HIM' && lastWinner === 'enemy'));
+    if (canAIAct) {
       const { ctx, updates } = updateAI(aiContextRef.current, newState, playerRef.current!);
       aiContextRef.current = ctx;
 
       const newAction = updates.action;
       if (newAction && newAction !== newState.action) {
+        // AI triggers fatality check
+        if (gameState === 'FINISH_HIM' && !fatalityActiveRef.current && lastWinner === 'enemy') {
+            if (newAction.includes('ATTACK')) {
+                 if (tryTriggerFatality(newState, player)) {
+                     // If fatality triggered, don't execute normal attack animation,
+                     // let the Fatality component take over overlay
+                     delete updates.action; // consume action
+                 }
+            }
+        }
+
         // If AI initiates an attack/special that has move data, use performAttack to handle effects
         const moveData = getMoveDataForAction(newState.id, newAction);
         if (moveData) {
@@ -1162,12 +1247,116 @@ function App() {
   };
 
 
+  const tryTriggerFatality = (attacker: FighterState, victim: FighterState) => {
+    const distance = Math.abs(attacker.x - victim.x);
+    const inRange = distance < 350;
+
+    console.log('💀 TRY FATALITY:', {
+      attackerId: attacker.id,
+      victimId: victim.id,
+      distance,
+      inRange,
+      lastWinner
+    });
+
+    if (inRange) {
+      // FATALITY TRIGGERED!
+      dbg('Fatality triggered!', { distance, attackerX: attacker.x, victimX: victim.x });
+      fatalityActiveRef.current = true;
+      setFatalityTriggered(true);
+      // Do NOT overwrite lastWinner here; rely on round end result
+      setFinishTimer(999); // keep window alive during the overlay
+
+      // Capture positions for effects
+      const targetX = victim.x;
+      const targetY = victim.y;
+
+      // CHARACTER-SPECIFIC FATALITIES
+      const attackerId = attacker.id;
+
+      console.log('✅ FATALITY TRIGGERED!', {
+        attackerId,
+        victimId: victim.id,
+        settingFatalityVictim: victim.id
+      });
+
+      // Set character-specific message
+      const fatalityMessages: Record<string, string> = {
+        khayati: 'THE PAMPHLET OF DOOM',
+        bureaucrat: 'RED TAPE ANNIHILATION',
+        professor: 'GRADED TO DEATH',
+        maoist: 'GREAT LEAP TO OBLIVION',
+        debord: 'THE SPECTACLE CONSUMES'
+      };
+      setMessage(fatalityMessages[attackerId] || 'FATALITY');
+
+      // Spawn initial visual effects during fatality trigger
+      if (attackerId === 'bureaucrat') {
+        for (let i = 0; i < 12; i++) {
+          setTimeout(() => {
+            spawnBloodEffect(targetX + (Math.random() * 100 - 50), 80 + targetY + Math.random() * 60);
+            spawnSmokeEffect(targetX + (Math.random() * 80 - 40), 80 + targetY + Math.random() * 40);
+          }, i * 80);
+        }
+      } else if (attackerId === 'professor') {
+        for (let i = 0; i < 10; i++) {
+          setTimeout(() => {
+            spawnSparkEffect(targetX, 80 + targetY + i * 20, false);
+          }, i * 100);
+        }
+      } else if (attackerId === 'maoist') {
+        for (let i = 0; i < 5; i++) {
+          setTimeout(() => {
+            spawnSmokeEffect(targetX, 80 + targetY);
+            spawnBloodEffect(targetX, 80 + targetY + 60);
+          }, i * 200);
+        }
+      } else if (attackerId === 'debord') {
+        for (let i = 0; i < 20; i++) {
+          setTimeout(() => {
+            const angle = (i / 20) * Math.PI * 2;
+            const radius = 60;
+            spawnBloodEffect(
+              targetX + Math.cos(angle) * radius,
+              80 + targetY + 100 + Math.sin(angle) * radius
+            );
+          }, i * 30);
+        }
+      } else {
+        for (let i = 0; i < 8; i++) {
+          spawnBloodEffect(targetX + (Math.random() * 80 - 40), 120 + targetY + Math.random() * 40);
+        }
+      }
+
+      // Set victim to defeated state
+      if (victim.id === player.id) {
+          setPlayer(prev => ({ ...prev, hp: 0, action: 'DEFEAT', actionFrame: 0, stunFrames: 0 }));
+      } else {
+          setEnemy(prev => ({ ...prev, hp: 0, action: 'DEFEAT', actionFrame: 0, stunFrames: 0 }));
+      }
+
+      // Store both victim AND attacker to avoid state timing issues
+      setFatalityVictim(victim.id);
+
+      // Store attacker ID in a ref to ensure correct fatality display
+      fatalityAttackerRef.current = attacker.id;
+
+      return true;
+    } else {
+      if (attacker.id === player.id) {
+         setMessage('GET CLOSER!');
+         setTimeout(() => setMessage(''), 500);
+      }
+      return false;
+    }
+  };
+
   const handlePlayerInput = (newState: FighterState) => {
     const keys = keysPressed.current;
     const attackKeys = attackTaps.current;
 
-    // Style switch (Shift) - situationalist stance changes
-    if (keys.has('Shift')) {
+    // Style switch (V) - situationalist stance changes
+    if (keys.has('v')) {
       const styles = playerData.styles || ['STYLE A', 'STYLE B'];
       newState.styleIndex = (newState.styleIndex + 1) % styles.length;
       showMessage(`STYLE: ${styles[newState.styleIndex]}`, 800);
@@ -1183,7 +1372,7 @@ function App() {
     // Fatality trigger is handled in the attack section below
 
     // Spectacle Mode activation (Down + Space with full meter)
-    if (keys.has('ArrowDown') && keys.has(' ') && newState.meter >= 100 && !newState.spectacleMode) {
+    if (keys.has('arrowdown') && keys.has(' ') && newState.meter >= 100 && !newState.spectacleMode) {
       newState.spectacleMode = true;
       newState.spectacleFrames = 300; // 5 seconds at 60fps
       newState.meter = 0;
@@ -1195,45 +1384,54 @@ function App() {
     // Air control - allow slight horizontal movement while airborne
     if (newState.y > 0 && !isAttacking(newState)) {
       const speedMod = getStyleModifiers(newState).speed;
-      if (keys.has('ArrowLeft')) {
+      if (keys.has('arrowleft')) {
         newState.velocityX = Math.max(newState.velocityX - 0.5, -MOVE_SPEED * playerData.stats.speed * speedMod * 1.2);
-      } else if (keys.has('ArrowRight')) {
+      } else if (keys.has('arrowright')) {
         newState.velocityX = Math.min(newState.velocityX + 0.5, MOVE_SPEED * playerData.stats.speed * speedMod * 1.2);
       }
     }
 
     // Crouch
-    const isCrouching = keys.has('ArrowDown') && newState.y === 0 && !isAttacking(newState);
+    const isCrouching = keys.has('arrowdown') && newState.y === 0 && !isAttacking(newState);
+
+    // Run Logic (Shift)
+    const isRunning = keys.has('shift') && newState.stamina > 0;
+    const runMult = isRunning ? 2.0 : 1.0;
 
     // Movement
-      if (keys.has('ArrowLeft') && newState.y === 0 && !isAttacking(newState) && !isCrouching) {
-      newState.x -= MOVE_SPEED * playerData.stats.speed * getStyleModifiers(newState).speed;
-      newState.action = 'WALK_BACKWARD';
+      if (keys.has('arrowleft') && newState.y === 0 && !isAttacking(newState) && !isCrouching) {
+      newState.x -= MOVE_SPEED * playerData.stats.speed * getStyleModifiers(newState).speed * runMult;
+      newState.action = isRunning ? 'RUN' : 'WALK_BACKWARD';
+      if (isRunning) newState.stamina = Math.max(0, newState.stamina - 1.5); // Drain stamina
       newState.facingLeft = true;
-    } else if (keys.has('ArrowRight') && newState.y === 0 && !isAttacking(newState) && !isCrouching) {
-      newState.x += MOVE_SPEED * playerData.stats.speed * getStyleModifiers(newState).speed;
-      newState.action = 'WALK_FORWARD';
+    } else if (keys.has('arrowright') && newState.y === 0 && !isAttacking(newState) && !isCrouching) {
+      newState.x += MOVE_SPEED * playerData.stats.speed * getStyleModifiers(newState).speed * runMult;
+      newState.action = isRunning ? 'RUN' : 'WALK_FORWARD';
+      if (isRunning) newState.stamina = Math.max(0, newState.stamina - 1.5); // Drain stamina
       newState.facingLeft = false;
     }
 
     // Jump (with horizontal momentum)
-    if (keys.has('ArrowUp') && newState.y === 0 && !isAttacking(newState) && !isCrouching) {
+    if (keys.has('arrowup') && newState.y === 0 && !isAttacking(newState) && !isCrouching) {
       newState.velocityY = JUMP_FORCE;
       newState.action = 'JUMP';
       newState.actionFrame = 0;
 
       // Add horizontal momentum based on direction keys
-      if (keys.has('ArrowLeft')) {
+      if (keys.has('arrowleft')) {
         newState.velocityX = -MOVE_SPEED * playerData.stats.speed * getStyleModifiers(newState).speed * 1.2; // Jump backward
-      } else if (keys.has('ArrowRight')) {
+      } else if (keys.has('arrowright')) {
         newState.velocityX = MOVE_SPEED * playerData.stats.speed * getStyleModifiers(newState).speed * 1.2; // Jump forward
       }
     }
 
-    // Block - now on Q
-    if (keys.has('q') && newState.y === 0 && !isAttacking(newState) && !isCrouching) {
-      newState.action = 'BLOCK';
+    // Block - now on Q (allows Crouch Block)
+    if (keys.has('q') && newState.y === 0 && !isAttacking(newState)) {
       newState.isBlocking = true;
+      if (!isCrouching) {
+        newState.action = 'BLOCK';
+      }
+      // If crouching, visual action stays CROUCH, but isBlocking=true
     } else {
       newState.isBlocking = false;
     }
@@ -1267,7 +1465,7 @@ function App() {
         yPos: newState.y,
         isCrouching,
         conditionPassed: !isAttacking(newState) && newState.y === 0 && !isCrouching,
-        hasJKey: attackKeys.has('j'),
+        hasAKey: attackKeys.has('a'),
         attackKeysArray: Array.from(attackKeys),
         playerAction: newState.action
       });
@@ -1297,99 +1495,8 @@ function App() {
           distance: Math.abs(newState.x - enemy.x)
         });
 
-        if (gameState === 'FINISH_HIM' && !fatalityActiveRef.current) {
-          const distance = Math.abs(newState.x - enemy.x);
-          const inRange = distance < 350; // Increased from 250 to make it easier
-
-          console.log('⚡ FATALITY CHECK:', { distance, inRange, threshold: 350, fatalityActiveRef: fatalityActiveRef.current });
-          dbg('FINISH_HIM check:', { distance, inRange, threshold: 350, fatalityTriggered });
-
-          if (inRange) {
-            // FATALITY TRIGGERED!
-            dbg('Fatality triggered!', { distance, playerX: newState.x, enemyX: enemy.x });
-            fatalityActiveRef.current = true;
-            setFatalityTriggered(true);
-            setLastWinner('player');
-            setFinishTimer(999); // keep window alive during the overlay
-
-            // Capture positions for effects
-            const targetX = enemy.x;
-            const targetY = enemy.y;
-
-            // CHARACTER-SPECIFIC FATALITIES - All characters now get full fatality overlay
-            const playerId = newState.id;
-
-            // Set character-specific message
-            const fatalityMessages: Record<string, string> = {
-              khayati: 'THE PAMPHLET OF DOOM',
-              bureaucrat: 'RED TAPE ANNIHILATION',
-              professor: 'GRADED TO DEATH',
-              maoist: 'GREAT LEAP TO OBLIVION',
-              debord: 'THE SPECTACLE CONSUMES'
-            };
-            setMessage(fatalityMessages[playerId] || 'FATALITY');
-
-            // Spawn initial visual effects during fatality trigger
-            if (playerId === 'bureaucrat') {
-              for (let i = 0; i < 12; i++) {
-                setTimeout(() => {
-                  spawnBloodEffect(targetX + (Math.random() * 100 - 50), 80 + targetY + Math.random() * 60);
-                  spawnSmokeEffect(targetX + (Math.random() * 80 - 40), 80 + targetY + Math.random() * 40);
-                }, i * 80);
-              }
-            } else if (playerId === 'professor') {
-              for (let i = 0; i < 10; i++) {
-                setTimeout(() => {
-                  spawnSparkEffect(targetX, 80 + targetY + i * 20, false);
-                }, i * 100);
-              }
-            } else if (playerId === 'maoist') {
-              for (let i = 0; i < 5; i++) {
-                setTimeout(() => {
-                  spawnSmokeEffect(targetX, 80 + targetY);
-                  spawnBloodEffect(targetX, 80 + targetY + 60);
-                }, i * 200);
-              }
-            } else if (playerId === 'debord') {
-              for (let i = 0; i < 20; i++) {
-                setTimeout(() => {
-                  const angle = (i / 20) * Math.PI * 2;
-                  const radius = 60;
-                  spawnBloodEffect(
-                    targetX + Math.cos(angle) * radius,
-                    80 + targetY + 100 + Math.sin(angle) * radius
-                  );
-                }, i * 30);
-              }
-            } else {
-              for (let i = 0; i < 8; i++) {
-                spawnBloodEffect(targetX + (Math.random() * 80 - 40), 120 + targetY + Math.random() * 40);
-              }
-            }
-
-            // Set enemy to defeated state
-            setEnemy(prev => ({
-              ...prev,
-              hp: 0,
-              action: 'DEFEAT',
-              actionFrame: 0,
-              stunFrames: 0
-            }));
-
-            // ALL characters now trigger the full fatality overlay
-            console.log('💀 FATALITY VICTIM SET:', {
-              victimId: enemy.id,
-              attackerId: newState.id,
-              gameState,
-              playerRoundsWon: player.roundsWon,
-              enemyRoundsWon: enemy.roundsWon
-            });
-            setFatalityVictim(enemy.id);
-          } else {
-            // Not in range - show message
-            setMessage('GET CLOSER!');
-            setTimeout(() => setMessage(''), 500);
-          }
+        if (gameState === 'FINISH_HIM' && !fatalityActiveRef.current && lastWinner === 'player') {
+             tryTriggerFatality(newState, enemy);
         } else if (gameState !== 'FINISH_HIM') {
           // Normal attack (blocked during FINISH_HIM)
           dbg('Perform attack from ground A');
@@ -1718,8 +1825,10 @@ function App() {
     const comboText: ComboTextData = { id, text, x, y };
     setComboTexts(prev => [...prev, comboText]);
     audioManager.play('combo', { volume: 0.8 });
-    // Trigger Debord-style Toasty popup on combo milestones
-    triggerToasty();
+    // Trigger Debord-style Toasty popup on combo milestones (rarely)
+    if (comboCount >= 5 && Math.random() < 0.2) {
+      triggerToasty();
+    }
 
     // Auto-remove after animation (1.5 seconds)
     setTimeout(() => {
@@ -1740,8 +1849,18 @@ function App() {
       return;
     }
 
-    // Check if defender is blocking
-    const isBlocked = defender.isBlocking && defender.action === 'BLOCK';
+    // Check if defender is blocking (handle high/low)
+    let isBlocked = false;
+    if (defender.isBlocking) {
+      const isCrouchingBlock = defender.action === 'CROUCH';
+      if (move.type === 'low') {
+        // Lows only blocked by crouching
+        if (isCrouchingBlock) isBlocked = true;
+      } else {
+        // Mids/Highs blocked by standing or crouching
+        isBlocked = true;
+      }
+    }
 
     // Calculate damage with blocking reduction
     const atkMods = getStyleModifiers(attacker);
@@ -1770,7 +1889,8 @@ function App() {
     } else {
       // Spawn blood splatter on clean hits
       spawnBloodEffect(defender.x, 80 + defender.y + 100);
-      if (damage >= 20) {
+      // Toasty only on big damage (chance)
+      if (damage >= 25 && Math.random() < 0.15) {
         triggerToasty();
       }
     }
@@ -1807,9 +1927,14 @@ function App() {
         const stunMultiplier = isBlocked ? 0.3 : 1.0;
         const knockbackMultiplier = isBlocked ? 0.2 : 1.0;
 
-        const knockdown = !isBlocked && (move.knockback > 15 || move.hitStun > 20);
-        const launch = !isBlocked && attacker.action === 'ATTACK_RP' && defender.y <= 0;
+        const knockdown = !isBlocked && (move.knockback > 15 || move.hitStun > 20 || move.groundBounce);
+        const launch = !isBlocked && (move.launchForce !== undefined) && defender.y <= 0;
         const isGrabbed = !isBlocked && move.isGrab;
+
+        // JUGGLE SYSTEM: Allow hitting airborne opponents with reduced juggle count limit
+        const isAirborne = prev.y > 0;
+        const canJuggle = isAirborne && prev.isJuggled && prev.juggleCount < 4; // Max 4 juggle hits
+        const startJuggle = launch && !isAirborne; // Uppercut launches start juggle state
 
         if (knockdown) {
           spawnSmokeEffect(defender.x, 80 + defender.y);
@@ -1820,6 +1945,7 @@ function App() {
         if (!isBlocked) {
           if (isGrabbed) newAction = 'GRABBED';
           else if (knockdown) newAction = 'KNOCKDOWN';
+          else if (canJuggle || startJuggle) newAction = 'HIT_STUN'; // Juggled in air
           else newAction = 'HIT_STUN';
         }
         audioManager.play(isBlocked ? 'block' : move.damage > 15 ? 'hitHeavy' : 'hitLight', { volume: isBlocked ? 0.5 : 0.7 });
@@ -1832,8 +1958,11 @@ function App() {
           actionFrame: 0,
           stunFrames: Math.floor(move.hitStun * stunMultiplier),
           velocityX: move.knockback * knockbackMultiplier * (attacker.facingLeft ? -1 : 1),
-          velocityY: launch ? 15 : knockdown ? 10 : prev.velocityY,
-          comboCount: 0 // Reset enemy combo
+          velocityY: launch ? (move.launchForce || 15) : knockdown ? 10 : canJuggle ? 22 : prev.velocityY,
+          comboCount: 0, // Reset enemy combo
+          isJuggled: startJuggle || (canJuggle && prev.isJuggled), // Start or continue juggle
+          juggleCount: startJuggle ? 1 : (canJuggle ? prev.juggleCount + 1 : prev.juggleCount),
+          juggleGravity: (startJuggle || canJuggle) ? GRAVITY * 0.6 : GRAVITY // Slower fall during juggle but not moon gravity
         };
       });
 
@@ -1869,9 +1998,14 @@ function App() {
         const stunMultiplier = isBlocked ? 0.3 : 1.0;
         const knockbackMultiplier = isBlocked ? 0.2 : 1.0;
 
-        const knockdown = !isBlocked && (move.knockback > 15 || move.hitStun > 20);
-        const launch = !isBlocked && attacker.action === 'ATTACK_RP' && defender.y <= 0;
+        const knockdown = !isBlocked && (move.knockback > 15 || move.hitStun > 20 || move.groundBounce);
+        const launch = !isBlocked && (move.launchForce !== undefined) && defender.y <= 0;
         const isGrabbed = !isBlocked && move.isGrab;
+
+        // JUGGLE SYSTEM: Allow hitting airborne opponents with reduced juggle count limit
+        const isAirborne = prev.y > 0;
+        const canJuggle = isAirborne && prev.isJuggled && prev.juggleCount < 4; // Max 4 juggle hits
+        const startJuggle = launch && !isAirborne; // Uppercut launches start juggle state
 
         if (knockdown) {
           spawnSmokeEffect(defender.x, 80 + defender.y);
@@ -1882,6 +2016,7 @@ function App() {
         if (!isBlocked) {
           if (isGrabbed) newAction = 'GRABBED';
           else if (knockdown) newAction = 'KNOCKDOWN';
+          else if (canJuggle || startJuggle) newAction = 'HIT_STUN'; // Juggled in air
           else newAction = 'HIT_STUN';
         }
         audioManager.play(isBlocked ? 'block' : move.damage > 15 ? 'hitHeavy' : 'hitLight', { volume: isBlocked ? 0.5 : 0.7 });
@@ -1894,8 +2029,11 @@ function App() {
           actionFrame: 0,
           stunFrames: Math.floor(move.hitStun * stunMultiplier),
           velocityX: move.knockback * knockbackMultiplier * (attacker.facingLeft ? -1 : 1),
-          velocityY: launch ? 15 : knockdown ? 10 : prev.velocityY,
-          comboCount: 0
+          velocityY: launch ? (move.launchForce || 15) : knockdown ? 10 : canJuggle ? 22 : prev.velocityY,
+          comboCount: 0,
+          isJuggled: startJuggle || (canJuggle && prev.isJuggled), // Start or continue juggle
+          juggleCount: startJuggle ? 1 : (canJuggle ? prev.juggleCount + 1 : prev.juggleCount),
+          juggleGravity: (startJuggle || canJuggle) ? GRAVITY * 0.6 : GRAVITY // Slower fall during juggle but not moon gravity
         };
       });
 
@@ -1988,11 +2126,21 @@ function App() {
       }));
 
       if (enemy.roundsWon + 1 >= 2) {
-        const loseScenario = LOSE_SCENARIOS[player.id] || LOSE_SCENARIOS['khayati'];
-        setCurrentScenario(loseScenario);
-        setCutsceneIndex(0);
-        setMessage('GAME OVER');
-        setGameState('LOSE_CUTSCENE');
+        setMessage('YOU ARE FINISHED!');
+        setFinishTimer(300); // 5 seconds at 60fps
+        fatalityActiveRef.current = false;
+        setFatalityTriggered(false);
+        setGameState('FINISH_HIM');
+        audioManager.play('finishHim', { volume: 0.7 });
+        
+        // Player is dizzy, Enemy (AI) is free
+        setPlayer(prev => ({
+          ...prev,
+          action: 'DIZZY',
+          actionFrame: 0,
+          stunFrames: 999 // keep them frozen
+        }));
+        setEnemy(prev => ({ ...prev, stunFrames: 0 }));
       } else {
         setGameState('ROUND_END');
         setMessage(`${enemyData.name.toUpperCase()} WINS ROUND`);
@@ -2017,26 +2165,48 @@ function App() {
   // Auto-end FINISH_HIM if timer expires; also safety-complete if fatality was triggered but overlay failed
   useEffect(() => {
     if (gameState === 'FINISH_HIM' && finishTimer === 0) {
+      console.log('⏰ FINISH_HIM timer expired', { lastWinner, fatalityTriggered });
+
       if (!fatalityTriggered) {
-        setEnemy(prev => ({ ...prev, action: 'DEFEAT', actionFrame: 0, hp: 0 }));
-        setLastWinner('player');
-        setMessage('TIME OVER');
-        setTimeout(() => setGameState('GAME_OVER'), 800);
+        // Timer ran out without fatality being performed
+        if (lastWinner === 'player') {
+          // Player won but didn't perform fatality
+          setEnemy(prev => ({ ...prev, action: 'DEFEAT', actionFrame: 0, hp: 0 }));
+          setMessage('TIME OVER');
+          setTimeout(() => setGameState('GAME_OVER'), 800);
+        } else {
+          // Enemy won but didn't perform fatality
+          setPlayer(prev => ({ ...prev, action: 'DEFEAT', actionFrame: 0, hp: 0 }));
+          setMessage('YOU ARE FINISHED!');
+          setTimeout(() => {
+            const loseScenario = LOSE_SCENARIOS[player.id] || LOSE_SCENARIOS['khayati'];
+            setCurrentScenario(loseScenario);
+            setCutsceneIndex(0);
+            setGameState('LOSE_CUTSCENE');
+          }, 800);
+        }
       } else {
-        // Fatality was triggered but nothing fired; force-complete to keep ladder moving
+        // Fatality was triggered but overlay might have failed - force-complete
         if (!fatalityVictim) {
           console.log('⏰ FINISH_HIM timer expired with fatalityTriggered=true but no overlay - forcing completion');
-          setFatalityVictim(enemy.id);
+          setFatalityVictim(lastWinner === 'player' ? enemy.id : player.id);
         }
         setTimeout(() => {
           setFatalityVictim(null);
-          setGameState('GAME_OVER');
-          setLastWinner('player');
-          advanceLadder();
+          if (lastWinner === 'player') {
+            setGameState('GAME_OVER');
+            advanceLadder();
+          } else {
+            // Enemy performed fatality - go to lose cutscene
+            const loseScenario = LOSE_SCENARIOS[player.id] || LOSE_SCENARIOS['khayati'];
+            setCurrentScenario(loseScenario);
+            setCutsceneIndex(0);
+            setGameState('LOSE_CUTSCENE');
+          }
         }, 1200);
       }
     }
-  }, [finishTimer, gameState, fatalityTriggered, fatalityVictim, enemy.id]);
+  }, [finishTimer, gameState, fatalityTriggered, fatalityVictim, enemy.id, lastWinner, player.id]);
 
   // Advance ladder on win at game over
   useEffect(() => {
@@ -2045,15 +2215,7 @@ function App() {
         advanceLadder();
       }, 1200);
     }
-    if (gameState === 'LOSE_CUTSCENE') {
-      // if player lost, exit back to title after cutscene advance
-      const handler = setTimeout(() => {
-        setGameState('TITLE');
-        setLastWinner(null);
-        setLadderIndex(0);
-      }, 200);
-      return () => clearTimeout(handler);
-    }
+    // Note: LOSE_CUTSCENE exits to TITLE through advanceCutscene() when player presses Enter
   }, [gameState, lastWinner]);
 
   const resetRound = () => {
@@ -2075,7 +2237,11 @@ function App() {
       comboCount: 0,
       spectacleMode: false,
       spectacleFrames: 0,
-      styleIndex: 0
+      styleIndex: 0,
+      stamina: 100,
+      isJuggled: false,
+      juggleCount: 0,
+      juggleGravity: GRAVITY
     }));
 
     setEnemy(prev => ({
@@ -2092,7 +2258,11 @@ function App() {
       comboCount: 0,
       spectacleMode: false,
       spectacleFrames: 0,
-      styleIndex: 0
+      styleIndex: 0,
+      stamina: 100,
+      isJuggled: false,
+      juggleCount: 0,
+      juggleGravity: GRAVITY
     }));
 
     setBloodEffects([]);
@@ -2108,11 +2278,11 @@ function App() {
   };
 
   const getSpecialInstructions = (id: string) => {
-    if (id === 'khayati') return 'SPECIALS: QCF+P (Pamphlet) | QCB+K (Scandal Grab)';
-    if (id === 'bureaucrat') return 'SPECIALS: QCB+K (Compromise Grab) | QCF+P (Red Tape Shot)';
-    if (id === 'professor') return 'SPECIALS: QCF+P (Bell Curve) | QCB+K (Sabbatical Buff)';
-    if (id === 'maoist') return 'SPECIALS: QCF+P (Book Throw) | QCB+K (Hat Toss)';
-    if (id === 'debord') return 'SPECIALS: QCF+P (Spectacle Orb) | QCB+K (Invisible Hand)';
+    if (id === 'khayati') return 'SPECIALS: QCF+A (Pamphlet) | QCB+S (Scandal) | DP+A (Bicycle) | HCF+S (Flying Dragon)';
+    if (id === 'bureaucrat') return 'SPECIALS: QCF+A (Red Tape) | QCB+S (Compromise) | DP+A (Baton Rush) | HCF+S (Arrest)';
+    if (id === 'professor') return 'SPECIALS: QCF+A (Bell Curve) | QCB+S (Sabbatical) | DP+A (Citation) | HCF+S (Tenure)';
+    if (id === 'maoist') return 'SPECIALS: QCF+A (Book Throw) | QCB+S (Hat Toss) | DP+A (Great Leap) | HCF+S (Self Crit)';
+    if (id === 'debord') return 'SPECIALS: QCF+A (Image) | QCB+S (Invisible Hand) | DP+A (Shadows) | HCF+S (Negation)';
     return '';
   };
 
@@ -2875,14 +3045,26 @@ function App() {
       {/* Close game world container */}
 
       {/* Fatality Overlay - positioned relative to viewport, NOT game world */}
-      {fatalityVictim && (
-        <Fatality
-          key={`fatality-${fatalityVictim}`}
-          victimId={fatalityVictim}
-          attackerId={player.id}
-          onComplete={handleFatalityComplete}
-        />
-      )}
+      {fatalityVictim && fatalityAttackerRef.current && (() => {
+        const attackerId = fatalityAttackerRef.current!; // Use ref for reliable attacker ID
+        console.log('🎬 FATALITY RENDER:', {
+          fatalityVictim,
+          playerId: player.id,
+          enemyId: enemy.id,
+          attackerId: attackerId,
+          attackerFromRef: fatalityAttackerRef.current,
+          lastWinner,
+          message: `Attacker: ${attackerId}, Victim: ${fatalityVictim}`
+        });
+        return (
+          <Fatality
+            key={`fatality-${fatalityVictim}`}
+            victimId={fatalityVictim}
+            attackerId={attackerId}
+            onComplete={handleFatalityComplete}
+          />
+        );
+      })()}
     </div>
   );
 }

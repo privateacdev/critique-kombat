@@ -45,8 +45,12 @@ export default function NinjaRenderer({ charId, action, frameTick, facingLeft }:
       // Don't fall back to idle - keep looping jump animation
     }
     let index: number;
+    // Clamp KNOCKDOWN/DEFEAT to last frame so they stay down
+    if ((action === 'KNOCKDOWN' || action === 'DEFEAT' || action === 'VICTORY') && rawIndex >= frames.length - 1) {
+      index = frames.length - 1;
+    }
     // Ping-pong idle for Khayati so the stance plays forward then backward
-    if (action === 'IDLE' && charId === 'khayati' && frames.length > 1) {
+    else if (action === 'IDLE' && charId === 'khayati' && frames.length > 1) {
       const cycle = (frames.length - 1) * 2;
       const pos = rawIndex % cycle;
       index = pos < frames.length ? pos : (cycle - pos);
